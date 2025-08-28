@@ -57,7 +57,7 @@ fn parse_to_tree(source: &str) -> Result<Tree, DfixxerError> {
         .ok_or_else(|| DfixxerError::ParseError("Failed to parse source".to_string()))
 }
 
-fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Result<Vec<Node<'a>>, DfixxerError> {
+fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Vec<Node<'a>> {
     fn traverse<'b>(node: Node<'b>, nodes: &mut Vec<Node<'b>>) {
         if node.kind() == "kUses" {
             nodes.push(node);
@@ -70,7 +70,7 @@ fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Result<Vec<Node<'a>>, 
     }
     let mut nodes = Vec::new();
     traverse(tree.root_node(), &mut nodes);
-    Ok(nodes)
+    nodes
 }
 
 fn run() -> Result<(), DfixxerError> {
@@ -78,7 +78,7 @@ fn run() -> Result<(), DfixxerError> {
     let arguments = parse_args(args)?;
     let source = load_file(&arguments.filename)?;
     let tree = parse_to_tree(&source)?;
-    let kuses_nodes = find_kuses_nodes(&tree, &source)?;
+    let kuses_nodes = find_kuses_nodes(&tree, &source);
 
     println!("Found {} kUses nodes.", kuses_nodes.len());
     for node in kuses_nodes {
