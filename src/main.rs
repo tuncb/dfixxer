@@ -3,6 +3,21 @@ use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
 
 #[derive(Debug)]
+enum UsesSection<'a> {
+    UsesSectionWithError {
+        node: Node<'a>,
+    },
+    UsesSectionWithUnsupportedComment {
+        node: Node<'a>,
+    },
+    UsesSectionParsed {
+        node: Node<'a>,
+        modules: Vec<String>,
+        k_semicolon: Node<'a>,
+    },
+}
+
+#[derive(Debug)]
 enum DfixxerError {
     InvalidArgs(String),
     IoError(std::io::Error),
@@ -73,6 +88,69 @@ fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Vec<Node<'a>> {
     nodes
 }
 
+fn transform_uses_section<'a>(
+    kuses_node: Node<'a>,
+    source: &str,
+) -> Result<UsesSection<'a>, DfixxerError> {
+    // Check if the starting node has an error
+    if kuses_node.has_error() {
+        return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
+    }
+
+    let mut modules = Vec::new();
+    let mut section_end_node = None;
+
+    // Get the parent node (should be declUses)
+    let parent = match kuses_node.parent() {
+        Some(p) => p,
+        None => return Ok(UsesSection::UsesSectionWithError { node: kuses_node }),
+    };
+
+    // Check parent for errors
+    if parent.has_error() {
+        return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
+    }
+
+    // Examine all children of the parent (siblings of kuses_node)
+    for i in 0..parent.child_count() {
+        if let Some(child) = parent.child(i) {
+            // Check each sibling for errors
+            if child.has_error() {
+                return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
+            }
+
+            // Check if any sibling is pp (preprocessor) or comment
+            if child.kind() == "pp" || child.kind() == "comment" {
+                return Ok(UsesSection::UsesSectionWithUnsupportedComment { node: kuses_node });
+            }
+
+            // Look for the section terminator (could be semicolon or kEnd)
+            if child.kind() == ";" || child.kind() == "kEnd" {
+                section_end_node = Some(child);
+            }
+
+            // Extract module names
+            if child.kind() == "moduleName" || child.kind() == "identifier" {
+                if let Ok(text) = child.utf8_text(source.as_bytes()) {
+                    modules.push(text.to_string());
+                }
+            }
+        }
+    }
+
+    // Return parsed section if we found a terminator
+    if let Some(end_node) = section_end_node {
+        Ok(UsesSection::UsesSectionParsed {
+            node: kuses_node,
+            modules,
+            k_semicolon: end_node,
+        })
+    } else {
+        // No terminator found - treat as error
+        Ok(UsesSection::UsesSectionWithError { node: kuses_node })
+    }
+}
+
 fn run() -> Result<(), DfixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
@@ -80,11 +158,11 @@ fn run() -> Result<(), DfixxerError> {
     let tree = parse_to_tree(&source)?;
     let kuses_nodes = find_kuses_nodes(&tree, &source);
 
-    println!("Found {} kUses nodes.", kuses_nodes.len());
-    for node in kuses_nodes {
-        let text = node.utf8_text(source.as_bytes()).unwrap_or("");
-        println!("kUses node: kind='{}', text='{}'", node.kind(), text);
-    }
+    let uses_sections: Vec<UsesSection> = kuses_nodes
+        .into_iter()
+        .map(|node| transform_uses_section(node, &source))
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(())
 }
 
