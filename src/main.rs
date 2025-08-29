@@ -18,6 +18,13 @@ enum UsesSection<'a> {
 }
 
 #[derive(Debug)]
+struct TextReplacement {
+    start: usize,
+    end: usize,
+    text: String,
+}
+
+#[derive(Debug)]
 enum DfixxerError {
     InvalidArgs(String),
     IoError(std::io::Error),
@@ -151,6 +158,63 @@ fn transform_uses_section<'a>(
     }
 }
 
+fn transform_to_replacement(uses_section: &UsesSection, source: &str) -> Option<TextReplacement> {
+    match uses_section {
+        UsesSection::UsesSectionParsed {
+            node,
+            modules,
+            k_semicolon,
+        } => {
+            let start = node.start_byte();
+            let end = k_semicolon.end_byte();
+
+            // Sort modules alphabetically
+            let mut sorted_modules = modules.clone();
+            sorted_modules.sort();
+
+            // Create the replacement text with proper formatting
+            let modules_text = sorted_modules.join(",\n  ");
+            let replacement_text = format!("uses\n  {};", modules_text);
+
+            Some(TextReplacement {
+                start,
+                end,
+                text: replacement_text,
+            })
+        }
+        _ => None, // Only handle parsed sections
+    }
+}
+
+fn apply_replacements(
+    filename: &str,
+    original_source: &str,
+    mut replacements: Vec<TextReplacement>,
+) -> Result<(), DfixxerError> {
+    if replacements.is_empty() {
+        return Ok(());
+    }
+
+    // Sort replacements by start position in reverse order
+    // This allows us to apply them from end to beginning to avoid offset issues
+    replacements.sort_by(|a, b| b.start.cmp(&a.start));
+
+    let mut modified_source = original_source.to_string();
+
+    // Apply each replacement
+    for replacement in replacements {
+        // Ensure the replacement range is valid
+        if replacement.start <= replacement.end && replacement.end <= modified_source.len() {
+            modified_source.replace_range(replacement.start..replacement.end, &replacement.text);
+        }
+    }
+
+    // Write the modified source back to the file
+    std::fs::write(filename, modified_source)?;
+
+    Ok(())
+}
+
 fn run() -> Result<(), DfixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
@@ -162,6 +226,17 @@ fn run() -> Result<(), DfixxerError> {
         .into_iter()
         .map(|node| transform_uses_section(node, &source))
         .collect::<Result<Vec<_>, _>>()?;
+
+    // Filter out UsesSectionParsed sections and create TextReplacement structs
+    let replacements: Vec<TextReplacement> = uses_sections
+        .iter()
+        .filter_map(|section| transform_to_replacement(section, &source))
+        .collect();
+
+    // Apply replacements to the original file
+    if !replacements.is_empty() {
+        apply_replacements(&arguments.filename, &source, replacements)?;
+    }
 
     Ok(())
 }

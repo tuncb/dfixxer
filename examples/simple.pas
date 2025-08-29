@@ -3,7 +3,9 @@ unit simple;
 interface
 
 uses
-  Classes, SysUtils, Forms;
+  Classes,
+  Forms,
+  SysUtils;
 
 type
   TSimpleClass = class
