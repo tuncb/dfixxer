@@ -158,7 +158,7 @@ fn transform_uses_section<'a>(
     }
 }
 
-fn transform_to_replacement(uses_section: &UsesSection, source: &str) -> Option<TextReplacement> {
+fn transform_to_replacement(uses_section: &UsesSection) -> Option<TextReplacement> {
     match uses_section {
         UsesSection::UsesSectionParsed {
             node,
@@ -227,10 +227,26 @@ fn run() -> Result<(), DfixxerError> {
         .map(|node| transform_uses_section(node, &source))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Filter out UsesSectionParsed sections and create TextReplacement structs
+    // Print warnings for error cases and filter out UsesSectionParsed sections
     let replacements: Vec<TextReplacement> = uses_sections
         .iter()
-        .filter_map(|section| transform_to_replacement(section, &source))
+        .filter_map(|section| match section {
+            UsesSection::UsesSectionWithError { node } => {
+                println!(
+                    "Uses section with grammar error found at line {}. Ignoring the section.",
+                    node.start_position().row + 1
+                );
+                None
+            }
+            UsesSection::UsesSectionWithUnsupportedComment { node } => {
+                println!(
+                    "Uses section with unsupported comment found at line {}. Ignoring the section.",
+                    node.start_position().row + 1
+                );
+                None
+            }
+            UsesSection::UsesSectionParsed { .. } => transform_to_replacement(section),
+        })
         .collect();
 
     // Apply replacements to the original file
