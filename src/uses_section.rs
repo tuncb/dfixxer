@@ -16,11 +16,19 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
                 }
             }
             lines.push(format!("{};", options.indentation));
-            format!("uses\n{}", lines.join("\n"))
+            format!(
+                "uses{}{}",
+                options.line_ending,
+                lines.join(&options.line_ending)
+            )
         }
         _ => {
-            let modules_text = modules.join(&format!(",\n{}", options.indentation));
-            format!("uses\n{}{};", options.indentation, modules_text)
+            let modules_text =
+                modules.join(&format!(",{}{}", options.line_ending, options.indentation));
+            format!(
+                "uses{}{}{};",
+                options.line_ending, options.indentation, modules_text
+            )
         }
     }
 }
@@ -144,7 +152,7 @@ mod tests {
             "UnitC".to_string(),
         ];
         let options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
-        let expected = "uses\n    UnitA\n    , UnitB\n    , UnitC\n    ;";
+        let expected = "uses\r\n    UnitA\r\n    , UnitB\r\n    , UnitC\r\n    ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
     }
@@ -157,7 +165,7 @@ mod tests {
             "UnitC".to_string(),
         ];
         let options = make_options(UsesSectionStyle::CommaAtTheEnd, "    ");
-        let expected = "uses\n    UnitA,\n    UnitB,\n    UnitC;";
+        let expected = "uses\r\n    UnitA,\r\n    UnitB,\r\n    UnitC;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
     }
@@ -166,7 +174,7 @@ mod tests {
     fn test_format_uses_replacement_empty_modules() {
         let modules: Vec<String> = vec![];
         let options = make_options(UsesSectionStyle::CommaAtTheBeginning, "  ");
-        let expected = "uses\n  ;";
+        let expected = "uses\r\n  ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
     }
@@ -213,5 +221,15 @@ mod tests {
         let expected = vec!["A.B", "SystemA.B", "X.Y"];
         let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
         assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn test_format_uses_replacement_with_custom_line_ending() {
+        let modules = vec!["UnitA".to_string(), "UnitB".to_string()];
+        let mut options = make_options(UsesSectionStyle::CommaAtTheEnd, "  ");
+        options.line_ending = "\n".to_string(); // Use Unix line ending
+        let expected = "uses\n  UnitA,\n  UnitB;";
+        let result = format_uses_replacement(&modules, &options);
+        assert_eq!(result, expected);
     }
 }

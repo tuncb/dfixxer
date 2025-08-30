@@ -15,6 +15,7 @@ pub struct Options {
     pub uses_section_style: UsesSectionStyle,
     pub override_sorting_order: Vec<String>,
     pub modules_names_to_update: Vec<String>,
+    pub line_ending: String,
 }
 
 impl Default for Options {
@@ -24,6 +25,7 @@ impl Default for Options {
             uses_section_style: UsesSectionStyle::CommaAtTheEnd,
             override_sorting_order: Vec::new(),
             modules_names_to_update: Vec::new(),
+            line_ending: "\r\n".to_string(),
         }
     }
 }
@@ -95,6 +97,7 @@ mod tests {
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.modules_names_to_update, Vec::<String>::new());
+        assert_eq!(options.line_ending, "\r\n");
     }
 
     #[test]
@@ -104,6 +107,7 @@ mod tests {
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.modules_names_to_update, Vec::<String>::new());
+        assert_eq!(options.line_ending, "\r\n");
     }
 
     #[test]
@@ -116,6 +120,7 @@ mod tests {
             uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
             override_sorting_order: vec!["test_error".to_string()],
             modules_names_to_update: Vec::new(),
+            line_ending: "\n".to_string(),
         };
 
         // Save options
@@ -135,6 +140,7 @@ mod tests {
             vec!["test_error".to_string()]
         );
         assert_eq!(loaded_options.modules_names_to_update, Vec::<String>::new());
+        assert_eq!(loaded_options.line_ending, "\n");
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -154,5 +160,6 @@ mod tests {
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.modules_names_to_update, Vec::<String>::new());
+        assert_eq!(options.line_ending, "\r\n");
     }
 }
