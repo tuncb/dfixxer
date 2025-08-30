@@ -3,6 +3,8 @@ unit simple;
 interface
 
 uses
+  ,,
+  ,,
   Classes,
   Forms,
   SysUtils;

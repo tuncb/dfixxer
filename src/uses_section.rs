@@ -1,6 +1,7 @@
 use crate::options::Options;
 use crate::parser::{Kind, UsesSection as ParserUsesSection};
 use crate::replacements::TextReplacement;
+use log::warn;
 
 // Formats the replacement text for a uses section given the modules and options.
 fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
@@ -81,6 +82,16 @@ pub fn transform_parser_uses_section_to_replacement(
         match sibling.kind {
             Kind::Comment | Kind::Preprocessor => {
                 // Skip this uses section if it contains comments or preprocessor directives
+                warn!(
+                    "Skipping uses section at byte range {}-{} due to presence of {} node",
+                    uses_section.uses.start_byte,
+                    uses_section.semicolon.end_byte,
+                    match sibling.kind {
+                        Kind::Comment => "comment",
+                        Kind::Preprocessor => "preprocessor",
+                        _ => "unknown",
+                    }
+                );
                 return None;
             }
             _ => continue,

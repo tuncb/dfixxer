@@ -1,8 +1,37 @@
 // Handles CLI argument parsing and related types for dfixxer
 use crate::dfixxer_error::DFixxerError;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::env;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum LogLevel {
+    /// No logging output
+    Off,
+    /// Only error messages
+    Error,
+    /// Error and warning messages
+    Warn,
+    /// Error, warning, and info messages
+    Info,
+    /// Error, warning, info, and debug messages
+    Debug,
+    /// All log messages including trace
+    Trace,
+}
+
+impl LogLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LogLevel::Off => "off",
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Command {
@@ -14,11 +43,16 @@ pub struct Arguments {
     pub command: Command,
     pub filename: String,
     pub config_path: Option<String>,
+    pub log_level: Option<LogLevel>,
 }
 
 #[derive(Parser, Debug)]
 #[command(name = "dfixxer", about = "Fix Delphi/Pascal files", version)]
 struct Cli {
+    /// Set the logging level
+    #[arg(long = "log-level", short = 'l', value_enum, global = true)]
+    log_level: Option<LogLevel>,
+
     #[command(subcommand)]
     command: CliCommand,
 }
@@ -87,12 +121,14 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
                 command: Command::UpdateFile,
                 filename,
                 config_path,
+                log_level: cli.log_level,
             })
         }
         CliCommand::InitConfig { filename } => Ok(Arguments {
             command: Command::InitConfig,
             filename,
             config_path: None,
+            log_level: cli.log_level,
         }),
     }
 }
