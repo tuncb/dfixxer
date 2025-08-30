@@ -1,3 +1,4 @@
+use crate::dfixxer_error::DFixxerError;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -17,9 +18,12 @@ impl Default for Options {
 
 impl Options {
     /// Load options from a TOML file, using defaults for missing fields
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = fs::read_to_string(path)?;
-        let mut options: Options = toml::from_str(&content)?;
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, DFixxerError> {
+        let content = fs::read_to_string(path)
+            .map_err(|e| DFixxerError::ConfigError(format!("Failed to read config file: {}", e)))?;
+        let mut options: Options = toml::from_str(&content).map_err(|e| {
+            DFixxerError::ConfigError(format!("Failed to parse config file: {}", e))
+        })?;
 
         // If indentation is empty or not set properly, use default
         if options.indentation.is_empty() {
@@ -27,6 +31,13 @@ impl Options {
         }
 
         Ok(options)
+    }
+
+    /// Create a default configuration file
+    pub fn create_default_config<P: AsRef<Path>>(path: P) -> Result<(), DFixxerError> {
+        let default_options = Self::default();
+        default_options.save_to_file(path)?;
+        Ok(())
     }
 
     /// Load options from a TOML file, or return default if file doesn't exist
@@ -38,18 +49,12 @@ impl Options {
     }
 
     /// Save options to a TOML file
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let content = toml::to_string_pretty(self)?;
-        fs::write(path, content)?;
-        Ok(())
-    }
-
-    /// Create a default configuration file
-    pub fn create_default_config<P: AsRef<Path>>(
-        path: P,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let default_options = Self::default();
-        default_options.save_to_file(path)?;
+    fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), DFixxerError> {
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| DFixxerError::ConfigError(format!("Failed to serialize config: {}", e)))?;
+        fs::write(path, content).map_err(|e| {
+            DFixxerError::ConfigError(format!("Failed to write config file: {}", e))
+        })?;
         Ok(())
     }
 }

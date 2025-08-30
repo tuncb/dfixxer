@@ -1,4 +1,5 @@
-use std::fmt;
+mod dfixxer_error;
+use dfixxer_error::DFixxerError;
 use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
 
@@ -28,33 +29,6 @@ struct TextReplacement {
 }
 
 #[derive(Debug)]
-enum DfixxerError {
-    InvalidArgs(String),
-    IoError(std::io::Error),
-    ParseError(String),
-    ConfigError(String),
-}
-
-impl fmt::Display for DfixxerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DfixxerError::InvalidArgs(msg) => write!(f, "{}", msg),
-            DfixxerError::IoError(err) => write!(f, "Failed to read file: {}", err),
-            DfixxerError::ParseError(msg) => write!(f, "{}", msg),
-            DfixxerError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for DfixxerError {}
-
-impl From<std::io::Error> for DfixxerError {
-    fn from(err: std::io::Error) -> Self {
-        DfixxerError::IoError(err)
-    }
-}
-
-#[derive(Debug)]
 enum Command {
     UpdateFile,
     InitConfig,
@@ -65,9 +39,9 @@ struct Arguments {
     filename: String,
 }
 
-fn parse_args(args: Vec<String>) -> Result<Arguments, DfixxerError> {
+fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
     if args.len() < 2 {
-        return Err(DfixxerError::InvalidArgs(format!(
+        return Err(DFixxerError::InvalidArgs(format!(
             "Usage: {} <command> [<filename>]",
             args[0]
         )));
@@ -76,7 +50,7 @@ fn parse_args(args: Vec<String>) -> Result<Arguments, DfixxerError> {
     let command = match args[1].as_str() {
         "update" => {
             if args.len() < 3 {
-                return Err(DfixxerError::InvalidArgs(format!(
+                return Err(DFixxerError::InvalidArgs(format!(
                     "Usage: {} update <filename>",
                     args[0]
                 )));
@@ -85,7 +59,7 @@ fn parse_args(args: Vec<String>) -> Result<Arguments, DfixxerError> {
         }
         "init-config" => Command::InitConfig,
         _ => {
-            return Err(DfixxerError::InvalidArgs(format!(
+            return Err(DFixxerError::InvalidArgs(format!(
                 "Unknown command '{}'. Available commands: update, init-config",
                 args[1]
             )));
@@ -100,18 +74,18 @@ fn parse_args(args: Vec<String>) -> Result<Arguments, DfixxerError> {
     Ok(Arguments { command, filename })
 }
 
-fn load_file(filename: &str) -> Result<String, DfixxerError> {
+fn load_file(filename: &str) -> Result<String, DFixxerError> {
     Ok(std::fs::read_to_string(filename)?)
 }
 
-fn parse_to_tree(source: &str) -> Result<Tree, DfixxerError> {
+fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
     let mut parser = Parser::new();
     parser
         .set_language(&LANGUAGE.into())
-        .map_err(|_| DfixxerError::ParseError("Failed to set language".to_string()))?;
+        .map_err(|_| DFixxerError::ParseError("Failed to set language".to_string()))?;
     parser
         .parse(source, None)
-        .ok_or_else(|| DfixxerError::ParseError("Failed to parse source".to_string()))
+        .ok_or_else(|| DFixxerError::ParseError("Failed to parse source".to_string()))
 }
 
 fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Vec<Node<'a>> {
@@ -133,7 +107,7 @@ fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Vec<Node<'a>> {
 fn transform_uses_section<'a>(
     kuses_node: Node<'a>,
     source: &str,
-) -> Result<UsesSection<'a>, DfixxerError> {
+) -> Result<UsesSection<'a>, DFixxerError> {
     // Check if the starting node has an error
     if kuses_node.has_error() {
         return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
@@ -228,7 +202,7 @@ fn apply_replacements(
     filename: &str,
     original_source: &str,
     mut replacements: Vec<TextReplacement>,
-) -> Result<(), DfixxerError> {
+) -> Result<(), DFixxerError> {
     if replacements.is_empty() {
         return Ok(());
     }
@@ -253,7 +227,7 @@ fn apply_replacements(
     Ok(())
 }
 
-fn run() -> Result<(), DfixxerError> {
+fn run() -> Result<(), DFixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
 
@@ -303,7 +277,7 @@ fn run() -> Result<(), DfixxerError> {
             match Options::create_default_config("dfixxer.toml") {
                 Ok(()) => println!("Created default configuration file: dfixxer.toml"),
                 Err(e) => {
-                    return Err(DfixxerError::ConfigError(format!(
+                    return Err(DFixxerError::ConfigError(format!(
                         "Failed to create config file: {}",
                         e
                     )));
