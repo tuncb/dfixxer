@@ -2,7 +2,8 @@ mod dfixxer_error;
 use dfixxer_error::DFixxerError;
 use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
-
+mod arguments;
+use arguments::{Command, parse_args};
 mod options;
 use options::Options;
 
@@ -26,52 +27,6 @@ struct TextReplacement {
     start: usize,
     end: usize,
     text: String,
-}
-
-#[derive(Debug)]
-enum Command {
-    UpdateFile,
-    InitConfig,
-}
-
-struct Arguments {
-    command: Command,
-    filename: String,
-}
-
-fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
-    if args.len() < 2 {
-        return Err(DFixxerError::InvalidArgs(format!(
-            "Usage: {} <command> [<filename>]",
-            args[0]
-        )));
-    }
-
-    let command = match args[1].as_str() {
-        "update" => {
-            if args.len() < 3 {
-                return Err(DFixxerError::InvalidArgs(format!(
-                    "Usage: {} update <filename>",
-                    args[0]
-                )));
-            }
-            Command::UpdateFile
-        }
-        "init-config" => Command::InitConfig,
-        _ => {
-            return Err(DFixxerError::InvalidArgs(format!(
-                "Unknown command '{}'. Available commands: update, init-config",
-                args[1]
-            )));
-        }
-    };
-
-    let filename = match command {
-        Command::UpdateFile => args[2].clone(),
-        Command::InitConfig => String::new(), // No filename needed for init-config
-    };
-
-    Ok(Arguments { command, filename })
 }
 
 fn load_file(filename: &str) -> Result<String, DFixxerError> {
@@ -234,7 +189,8 @@ fn run() -> Result<(), DFixxerError> {
     match arguments.command {
         Command::UpdateFile => {
             // Load options from config file, or use defaults if not found
-            let options: Options = Options::load_or_default("dfixxer.toml");
+            let config_path = arguments.config_path.as_deref().unwrap_or("dfixxer.toml");
+            let options: Options = Options::load_or_default(config_path);
 
             let source = load_file(&arguments.filename)?;
             let tree = parse_to_tree(&source)?;
@@ -274,8 +230,8 @@ fn run() -> Result<(), DFixxerError> {
         }
         Command::InitConfig => {
             println!("Initializing configuration...");
-            match Options::create_default_config("dfixxer.toml") {
-                Ok(()) => println!("Created default configuration file: dfixxer.toml"),
+            match Options::create_default_config(&arguments.filename) {
+                Ok(()) => println!("Created default configuration file: {}", arguments.filename),
                 Err(e) => {
                     return Err(e);
                 }
