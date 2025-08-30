@@ -49,20 +49,50 @@ impl From<std::io::Error> for DfixxerError {
     }
 }
 
+#[derive(Debug)]
+enum Command {
+    UpdateFile,
+    InitConfig,
+}
+
 struct Arguments {
+    command: Command,
     filename: String,
 }
 
 fn parse_args(args: Vec<String>) -> Result<Arguments, DfixxerError> {
     if args.len() < 2 {
         return Err(DfixxerError::InvalidArgs(format!(
-            "Usage: {} <filename>",
+            "Usage: {} <command> [<filename>]",
             args[0]
         )));
     }
-    Ok(Arguments {
-        filename: args[1].clone(),
-    })
+
+    let command = match args[1].as_str() {
+        "update" => {
+            if args.len() < 3 {
+                return Err(DfixxerError::InvalidArgs(format!(
+                    "Usage: {} update <filename>",
+                    args[0]
+                )));
+            }
+            Command::UpdateFile
+        }
+        "init-config" => Command::InitConfig,
+        _ => {
+            return Err(DfixxerError::InvalidArgs(format!(
+                "Unknown command '{}'. Available commands: update, init-config",
+                args[1]
+            )));
+        }
+    };
+
+    let filename = match command {
+        Command::UpdateFile => args[2].clone(),
+        Command::InitConfig => String::new(), // No filename needed for init-config
+    };
+
+    Ok(Arguments { command, filename })
 }
 
 fn load_file(filename: &str) -> Result<String, DfixxerError> {
@@ -218,40 +248,49 @@ fn apply_replacements(
 fn run() -> Result<(), DfixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
-    let source = load_file(&arguments.filename)?;
-    let tree = parse_to_tree(&source)?;
-    let kuses_nodes = find_kuses_nodes(&tree, &source);
 
-    let uses_sections: Vec<UsesSection> = kuses_nodes
-        .into_iter()
-        .map(|node| transform_uses_section(node, &source))
-        .collect::<Result<Vec<_>, _>>()?;
+    match arguments.command {
+        Command::UpdateFile => {
+            let source = load_file(&arguments.filename)?;
+            let tree = parse_to_tree(&source)?;
+            let kuses_nodes = find_kuses_nodes(&tree, &source);
 
-    // Print warnings for error cases and filter out UsesSectionParsed sections
-    let replacements: Vec<TextReplacement> = uses_sections
-        .iter()
-        .filter_map(|section| match section {
-            UsesSection::UsesSectionWithError { node } => {
-                println!(
-                    "Uses section with grammar error found at line {}. Ignoring the section.",
-                    node.start_position().row + 1
-                );
-                None
+            let uses_sections: Vec<UsesSection> = kuses_nodes
+                .into_iter()
+                .map(|node| transform_uses_section(node, &source))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Print warnings for error cases and filter out UsesSectionParsed sections
+            let replacements: Vec<TextReplacement> = uses_sections
+                .iter()
+                .filter_map(|section| match section {
+                    UsesSection::UsesSectionWithError { node } => {
+                        println!(
+                            "Uses section with grammar error found at line {}. Ignoring the section.",
+                            node.start_position().row + 1
+                        );
+                        None
+                    }
+                    UsesSection::UsesSectionWithUnsupportedComment { node } => {
+                        println!(
+                            "Uses section with unsupported comment found at line {}. Ignoring the section.",
+                            node.start_position().row + 1
+                        );
+                        None
+                    }
+                    UsesSection::UsesSectionParsed { .. } => transform_to_replacement(section),
+                })
+                .collect();
+
+            // Apply replacements to the original file
+            if !replacements.is_empty() {
+                apply_replacements(&arguments.filename, &source, replacements)?;
             }
-            UsesSection::UsesSectionWithUnsupportedComment { node } => {
-                println!(
-                    "Uses section with unsupported comment found at line {}. Ignoring the section.",
-                    node.start_position().row + 1
-                );
-                None
-            }
-            UsesSection::UsesSectionParsed { .. } => transform_to_replacement(section),
-        })
-        .collect();
-
-    // Apply replacements to the original file
-    if !replacements.is_empty() {
-        apply_replacements(&arguments.filename, &source, replacements)?;
+        }
+        Command::InitConfig => {
+            println!("Initializing configuration...");
+            // TODO: Implement init-config functionality
+        }
     }
 
     Ok(())
