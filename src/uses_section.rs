@@ -118,6 +118,39 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
     }
 }
 
+fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
+    let mut modules = modules.clone();
+    let override_namespaces = &options.override_sorting_order;
+    if override_namespaces.is_empty() {
+        modules.sort();
+        return modules;
+    }
+
+    // Partition modules into those that start with any override namespace and have a '.' after the namespace, and the rest
+    let mut prioritized = Vec::new();
+    let mut rest = Vec::new();
+    for m in modules {
+        let mut is_prioritized = false;
+        for ns in override_namespaces {
+            if m.starts_with(ns) {
+                let ns_len = ns.len();
+                if m.len() > ns_len && m.chars().nth(ns_len) == Some('.') {
+                    is_prioritized = true;
+                    break;
+                }
+            }
+        }
+        if is_prioritized {
+            prioritized.push(m);
+        } else {
+            rest.push(m);
+        }
+    }
+    prioritized.sort();
+    rest.sort();
+    prioritized.into_iter().chain(rest.into_iter()).collect()
+}
+
 pub fn transform_to_replacement(
     uses_section: &UsesSection,
     options: &Options,
@@ -131,10 +164,9 @@ pub fn transform_to_replacement(
             let start = node.start_byte();
             let end = k_semicolon.end_byte();
 
-            let mut sorted_modules = modules.clone();
-            sorted_modules.sort();
-
+            let sorted_modules = sort_modules(modules, options);
             let replacement_text = format_uses_replacement(&sorted_modules, options);
+
             Some(TextReplacement {
                 start,
                 end,
@@ -192,5 +224,49 @@ mod tests {
         let expected = "uses\n  ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sort_modules_with_override_namespaces() {
+        let modules = vec![
+            "A".to_string(),
+            "B".to_string(),
+            "System.A".to_string(),
+            "Abc.B".to_string(),
+            "SystemA".to_string(),
+            "AbcB".to_string(),
+        ];
+        let mut options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        options.override_sorting_order = vec!["System".to_string(), "Abc".to_string()];
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec!["Abc.B", "System.A", "A", "AbcB", "B", "SystemA"];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn test_sort_modules_without_override_namespaces() {
+        let modules = vec!["B".to_string(), "A".to_string(), "C".to_string()];
+        let mut options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        options.override_sorting_order = vec![];
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec!["A", "B", "C"];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn test_sort_modules_with_dot_but_not_namespace() {
+        let modules = vec![
+            "X.Y".to_string(),
+            "A.B".to_string(),
+            "SystemA.B".to_string(),
+        ];
+        let mut options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        options.override_sorting_order = vec!["System".to_string()];
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec!["A.B", "SystemA.B", "X.Y"];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
     }
 }

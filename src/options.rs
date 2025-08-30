@@ -13,6 +13,7 @@ pub enum UsesSectionStyle {
 pub struct Options {
     pub indentation: String,
     pub uses_section_style: UsesSectionStyle,
+    pub override_sorting_order: Vec<String>,
 }
 
 impl Default for Options {
@@ -20,6 +21,7 @@ impl Default for Options {
         Options {
             indentation: "  ".to_string(),
             uses_section_style: UsesSectionStyle::CommaAtTheEnd,
+            override_sorting_order: Vec::new(),
         }
     }
 }
@@ -89,6 +91,7 @@ mod tests {
         let options = Options::default();
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.override_sorting_order, Vec::<String>::new());
     }
 
     #[test]
@@ -96,6 +99,7 @@ mod tests {
         let options = Options::load_or_default("non_existent_file.toml");
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.override_sorting_order, Vec::<String>::new());
     }
 
     #[test]
@@ -106,6 +110,7 @@ mod tests {
         let original_options = Options {
             indentation: "    ".to_string(), // 4 spaces
             uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
+            override_sorting_order: vec!["test_error".to_string()],
         };
 
         // Save options
@@ -119,6 +124,10 @@ mod tests {
         assert_eq!(
             loaded_options.uses_section_style,
             UsesSectionStyle::CommaAtTheBeginning
+        );
+        assert_eq!(
+            loaded_options.override_sorting_order,
+            vec!["test_error".to_string()]
         );
         // Manual cleanup
         fs::remove_file(&file_path).ok();
@@ -137,5 +146,6 @@ mod tests {
         let options = Options::load_or_default(&file_path);
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.override_sorting_order, Vec::<String>::new());
     }
 }
