@@ -20,7 +20,8 @@
         }
       },
       "args": [
-        ".\\examples\\codetoolmanager.pas"
+        "check",
+        ".\\test-data\\ex1.original.test.pas"
       ],
       "cwd": "${workspaceFolder}"
     },

@@ -122,6 +122,11 @@ fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
             } else if child.kind() == "kEnd" {
                 semicolon_node = Some(child);
             } else {
+                // Skip comma separators between module names
+                if child.kind() == "," {
+                    continue;
+                }
+
                 // Classify other siblings
                 let kind = match child.kind() {
                     "moduleName" | "identifier" => Kind::Module,
