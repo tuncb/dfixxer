@@ -27,6 +27,58 @@ fn create_unique_temp_dir() -> std::path::PathBuf {
     temp_path
 }
 
+fn assert_contents_match(actual_content: &str, expected_content: &str, file_name: &str) {
+    if actual_content == expected_content {
+        return;
+    }
+
+    // Show detailed diff information
+    let actual_lines: Vec<&str> = actual_content.lines().collect();
+    let expected_lines: Vec<&str> = expected_content.lines().collect();
+
+    let mut diff_info = format!("Mismatch for file: {}\n", file_name);
+    diff_info.push_str(&format!(
+        "Actual file has {} lines, expected file has {} lines\n",
+        actual_lines.len(),
+        expected_lines.len()
+    ));
+
+    // Show first differing line
+    for (i, (actual_line, expected_line)) in
+        actual_lines.iter().zip(expected_lines.iter()).enumerate()
+    {
+        if actual_line != expected_line {
+            diff_info.push_str(&format!(
+                "Line {}: \n  Actual:   '{}'\n  Expected: '{}'\n",
+                i + 1,
+                actual_line,
+                expected_line
+            ));
+            break; // Show only the first difference for brevity
+        }
+    }
+
+    // Handle case where files have different lengths
+    if actual_lines.len() != expected_lines.len() {
+        let min_len = actual_lines.len().min(expected_lines.len());
+        if actual_lines.len() > expected_lines.len() {
+            diff_info.push_str(&format!(
+                "Actual file has {} extra lines starting at line {}\n",
+                actual_lines.len() - expected_lines.len(),
+                min_len + 1
+            ));
+        } else {
+            diff_info.push_str(&format!(
+                "Actual file is missing {} lines that should start at line {}\n",
+                expected_lines.len() - actual_lines.len(),
+                min_len + 1
+            ));
+        }
+    }
+
+    panic!("{}", diff_info);
+}
+
 #[test]
 fn test_update_smoke() {
     let test_data_dir = Path::new("test-data");
@@ -59,11 +111,8 @@ fn test_update_smoke() {
                     fs::read_to_string(&temp_file).expect("Failed to read updated file");
                 let correct_content =
                     fs::read_to_string(&correct_file).expect("Failed to read correct file");
-                assert_eq!(
-                    updated_content, correct_content,
-                    "Mismatch for file: {}",
-                    name
-                );
+
+                assert_contents_match(&updated_content, &correct_content, name);
             }
         }
     }
