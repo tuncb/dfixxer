@@ -69,7 +69,7 @@ fn node_to_parsed_node(node: Node, kind: Kind) -> ParsedNode {
 }
 
 /// Find all kUses nodes in the tree, similar to find_kuses_nodes in uses_section.rs
-fn find_kuses_nodes(tree: &Tree) -> Vec<Node> {
+fn find_kuses_nodes(tree: &Tree) -> Vec<Node<'_>> {
     fn traverse<'a>(node: Node<'a>, nodes: &mut Vec<Node<'a>>) {
         if node.kind() == "kUses" {
             nodes.push(node);
