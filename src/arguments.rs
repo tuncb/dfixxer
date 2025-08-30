@@ -1,5 +1,6 @@
 // Handles CLI argument parsing and related types for dfixxer
 use crate::dfixxer_error::DFixxerError;
+use clap::{Parser, Subcommand};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,30 @@ pub struct Arguments {
     pub command: Command,
     pub filename: String,
     pub config_path: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[command(name = "dfixxer", about = "Fix Delphi/Pascal files", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: CliCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum CliCommand {
+    /// Update a file using configuration rules
+    Update {
+        /// The filename to update
+        filename: String,
+        /// Path to the configuration file
+        #[arg(long = "config")]
+        config: Option<String>,
+    },
+    /// Initialize configuration for a file
+    InitConfig {
+        /// The filename to initialize configuration for
+        filename: String,
+    },
 }
 
 /// Find a configuration file named 'dfixxer.toml' starting from the
@@ -47,51 +72,16 @@ pub fn find_config_for_filename(filename: &str) -> Option<String> {
 }
 
 pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
-    if args.len() < 2 {
-        return Err(DFixxerError::InvalidArgs(format!(
-            "Usage: {} <command> [<args>]\n\nCommands:\n  update <filename> [--config <path>]\n  init-config <filename>",
-            args[0]
-        )));
-    }
+    // Parse arguments using clap
+    let cli = Cli::try_parse_from(&args).map_err(|e| DFixxerError::InvalidArgs(e.to_string()))?;
 
-    match args[1].as_str() {
-        "update" => {
-            if args.len() < 3 {
-                return Err(DFixxerError::InvalidArgs(format!(
-                    "Usage: {} update <filename> [--config <path>]",
-                    args[0]
-                )));
-            }
-
-            let filename = args[2].clone();
-            let mut config_path: Option<String> = None;
-
-            // Parse optional flags after the filename
-            let mut i = 3;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--config" => {
-                        if i + 1 >= args.len() {
-                            return Err(DFixxerError::InvalidArgs(
-                                "Missing value for --config".to_string(),
-                            ));
-                        }
-                        config_path = Some(args[i + 1].clone());
-                        i += 2;
-                    }
-                    unknown => {
-                        return Err(DFixxerError::InvalidArgs(format!(
-                            "Unknown argument '{}' for 'update'. Usage: {} update <filename> [--config <path>]",
-                            unknown, args[0]
-                        )));
-                    }
-                }
-            }
-
+    match cli.command {
+        CliCommand::Update { filename, config } => {
             // If --config was not provided, try to find dfixxer.toml upward from the file's directory
-            if config_path.is_none() {
-                config_path = find_config_for_filename(&filename);
-            }
+            let config_path = match config {
+                Some(path) => Some(path),
+                None => find_config_for_filename(&filename),
+            };
 
             Ok(Arguments {
                 command: Command::UpdateFile,
@@ -99,38 +89,10 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
                 config_path,
             })
         }
-        "init-config" => {
-            if args.len() < 3 {
-                return Err(DFixxerError::InvalidArgs(format!(
-                    "Usage: {} init-config <filename>",
-                    args[0]
-                )));
-            }
-
-            // Disallow any additional arguments, especially --config
-            if args.len() > 3 {
-                if args[3] == "--config" {
-                    return Err(DFixxerError::InvalidArgs(
-                        "The --config option can only be used with the 'update' command"
-                            .to_string(),
-                    ));
-                } else {
-                    return Err(DFixxerError::InvalidArgs(format!(
-                        "Unknown argument '{}' for 'init-config'. Usage: {} init-config <filename>",
-                        args[3], args[0]
-                    )));
-                }
-            }
-
-            Ok(Arguments {
-                command: Command::InitConfig,
-                filename: args[2].clone(),
-                config_path: None,
-            })
-        }
-        _ => Err(DFixxerError::InvalidArgs(format!(
-            "Unknown command '{}'. Available commands: update, init-config",
-            args[1]
-        ))),
+        CliCommand::InitConfig { filename } => Ok(Arguments {
+            command: Command::InitConfig,
+            filename,
+            config_path: None,
+        }),
     }
 }
