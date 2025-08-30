@@ -120,6 +120,18 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
 
 fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     let mut modules = modules.clone();
+
+    // Apply modules_names_to_update: e.g. "System:Classes" means replace "Classes" with "System.Classes"
+    for mapping in &options.modules_names_to_update {
+        if let Some((prefix, name)) = mapping.split_once(':') {
+            for module in modules.iter_mut() {
+                if module == name {
+                    *module = format!("{}.{}", prefix, name);
+                }
+            }
+        }
+    }
+
     let override_namespaces = &options.override_sorting_order;
     if override_namespaces.is_empty() {
         modules.sort();

@@ -14,6 +14,7 @@ pub struct Options {
     pub indentation: String,
     pub uses_section_style: UsesSectionStyle,
     pub override_sorting_order: Vec<String>,
+    pub modules_names_to_update: Vec<String>,
 }
 
 impl Default for Options {
@@ -22,6 +23,7 @@ impl Default for Options {
             indentation: "  ".to_string(),
             uses_section_style: UsesSectionStyle::CommaAtTheEnd,
             override_sorting_order: Vec::new(),
+            modules_names_to_update: Vec::new(),
         }
     }
 }
@@ -92,6 +94,7 @@ mod tests {
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.modules_names_to_update, Vec::<String>::new());
     }
 
     #[test]
@@ -100,6 +103,7 @@ mod tests {
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.modules_names_to_update, Vec::<String>::new());
     }
 
     #[test]
@@ -111,6 +115,7 @@ mod tests {
             indentation: "    ".to_string(), // 4 spaces
             uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
             override_sorting_order: vec!["test_error".to_string()],
+            modules_names_to_update: Vec::new(),
         };
 
         // Save options
@@ -129,6 +134,7 @@ mod tests {
             loaded_options.override_sorting_order,
             vec!["test_error".to_string()]
         );
+        assert_eq!(loaded_options.modules_names_to_update, Vec::<String>::new());
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -147,5 +153,6 @@ mod tests {
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.modules_names_to_update, Vec::<String>::new());
     }
 }
