@@ -1,100 +1,6 @@
 use crate::options::Options;
-use crate::{dfixxer_error::DFixxerError, replacements::TextReplacement};
-use tree_sitter::{Node, Tree};
-
-#[derive(Debug)]
-pub enum UsesSection<'a> {
-    UsesSectionWithError {
-        node: Node<'a>,
-    },
-    UsesSectionWithUnsupportedComment {
-        node: Node<'a>,
-    },
-    UsesSectionParsed {
-        node: Node<'a>,
-        modules: Vec<String>,
-        k_semicolon: Node<'a>,
-    },
-}
-
-pub fn find_kuses_nodes<'a>(tree: &'a Tree, _source: &str) -> Vec<Node<'a>> {
-    fn traverse<'b>(node: Node<'b>, nodes: &mut Vec<Node<'b>>) {
-        if node.kind() == "kUses" {
-            nodes.push(node);
-        }
-        for i in 0..node.child_count() {
-            if let Some(child) = node.child(i) {
-                traverse(child, nodes);
-            }
-        }
-    }
-    let mut nodes = Vec::new();
-    traverse(tree.root_node(), &mut nodes);
-    nodes
-}
-
-pub fn transform_uses_section<'a>(
-    kuses_node: Node<'a>,
-    source: &str,
-) -> Result<UsesSection<'a>, DFixxerError> {
-    // Check if the starting node has an error
-    if kuses_node.has_error() {
-        return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
-    }
-
-    let mut modules = Vec::new();
-    let mut section_end_node = None;
-
-    // Get the parent node (should be declUses)
-    let parent = match kuses_node.parent() {
-        Some(p) => p,
-        None => return Ok(UsesSection::UsesSectionWithError { node: kuses_node }),
-    };
-
-    // Check parent for errors
-    if parent.has_error() {
-        return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
-    }
-
-    // Examine all children of the parent (siblings of kuses_node)
-    for i in 0..parent.child_count() {
-        if let Some(child) = parent.child(i) {
-            // Check each sibling for errors
-            if child.has_error() {
-                return Ok(UsesSection::UsesSectionWithError { node: kuses_node });
-            }
-
-            // Check if any sibling is pp (preprocessor) or comment
-            if child.kind() == "pp" || child.kind() == "comment" {
-                return Ok(UsesSection::UsesSectionWithUnsupportedComment { node: kuses_node });
-            }
-
-            // Look for the section terminator (could be semicolon or kEnd)
-            if child.kind() == ";" || child.kind() == "kEnd" {
-                section_end_node = Some(child);
-            }
-
-            // Extract module names
-            if child.kind() == "moduleName" || child.kind() == "identifier" {
-                if let Ok(text) = child.utf8_text(source.as_bytes()) {
-                    modules.push(text.to_string());
-                }
-            }
-        }
-    }
-
-    // Return parsed section if we found a terminator
-    if let Some(end_node) = section_end_node {
-        Ok(UsesSection::UsesSectionParsed {
-            node: kuses_node,
-            modules,
-            k_semicolon: end_node,
-        })
-    } else {
-        // No terminator found - treat as error
-        Ok(UsesSection::UsesSectionWithError { node: kuses_node })
-    }
-}
+use crate::parser::{Kind, UsesSection as ParserUsesSection};
+use crate::replacements::TextReplacement;
 
 // Formats the replacement text for a uses section given the modules and options.
 fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
@@ -163,30 +69,46 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     prioritized.into_iter().chain(rest.into_iter()).collect()
 }
 
-pub fn transform_to_replacement(
-    uses_section: &UsesSection,
+/// Transform a parser::UsesSection to TextReplacement
+/// Skips uses sections that contain comments or preprocessor nodes
+pub fn transform_parser_uses_section_to_replacement(
+    uses_section: &ParserUsesSection,
     options: &Options,
+    source: &str,
 ) -> Option<TextReplacement> {
-    match uses_section {
-        UsesSection::UsesSectionParsed {
-            node,
-            modules,
-            k_semicolon,
-        } => {
-            let start = node.start_byte();
-            let end = k_semicolon.end_byte();
-
-            let sorted_modules = sort_modules(modules, options);
-            let replacement_text = format_uses_replacement(&sorted_modules, options);
-
-            Some(TextReplacement {
-                start,
-                end,
-                text: replacement_text,
-            })
+    // Check if any sibling contains comments or preprocessor nodes
+    for sibling in &uses_section.siblings {
+        match sibling.kind {
+            Kind::Comment | Kind::Preprocessor => {
+                // Skip this uses section if it contains comments or preprocessor directives
+                return None;
+            }
+            _ => continue,
         }
-        _ => None, // Only handle parsed sections
     }
+
+    // Extract module names from siblings
+    let mut modules = Vec::new();
+    for sibling in &uses_section.siblings {
+        if matches!(sibling.kind, Kind::Module) {
+            // Extract the module text from the source using byte positions
+            let module_text = &source[sibling.start_byte..sibling.end_byte];
+            modules.push(module_text.to_string());
+        }
+    }
+
+    // Sort modules according to options
+    let sorted_modules = sort_modules(&modules, options);
+
+    // Format the replacement text
+    let replacement_text = format_uses_replacement(&sorted_modules, options);
+
+    // Create the text replacement
+    Some(TextReplacement {
+        start: uses_section.uses.start_byte,
+        end: uses_section.semicolon.end_byte,
+        text: replacement_text,
+    })
 }
 
 #[cfg(test)]
