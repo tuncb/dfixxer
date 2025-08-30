@@ -2,6 +2,9 @@ use std::fmt;
 use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
 
+mod options;
+use options::Options;
+
 #[derive(Debug)]
 enum UsesSection<'a> {
     UsesSectionWithError {
@@ -29,6 +32,7 @@ enum DfixxerError {
     InvalidArgs(String),
     IoError(std::io::Error),
     ParseError(String),
+    ConfigError(String),
 }
 
 impl fmt::Display for DfixxerError {
@@ -37,6 +41,7 @@ impl fmt::Display for DfixxerError {
             DfixxerError::InvalidArgs(msg) => write!(f, "{}", msg),
             DfixxerError::IoError(err) => write!(f, "Failed to read file: {}", err),
             DfixxerError::ParseError(msg) => write!(f, "{}", msg),
+            DfixxerError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
         }
     }
 }
@@ -188,7 +193,10 @@ fn transform_uses_section<'a>(
     }
 }
 
-fn transform_to_replacement(uses_section: &UsesSection) -> Option<TextReplacement> {
+fn transform_to_replacement(
+    uses_section: &UsesSection,
+    options: &Options,
+) -> Option<TextReplacement> {
     match uses_section {
         UsesSection::UsesSectionParsed {
             node,
@@ -202,9 +210,9 @@ fn transform_to_replacement(uses_section: &UsesSection) -> Option<TextReplacemen
             let mut sorted_modules = modules.clone();
             sorted_modules.sort();
 
-            // Create the replacement text with proper formatting
-            let modules_text = sorted_modules.join(",\n  ");
-            let replacement_text = format!("uses\n  {};", modules_text);
+            // Create the replacement text with proper formatting using configured indentation
+            let modules_text = sorted_modules.join(&format!(",\n{}", options.indentation));
+            let replacement_text = format!("uses\n{}{};", options.indentation, modules_text);
 
             Some(TextReplacement {
                 start,
@@ -251,6 +259,9 @@ fn run() -> Result<(), DfixxerError> {
 
     match arguments.command {
         Command::UpdateFile => {
+            // Load options from config file, or use defaults if not found
+            let options = Options::load_or_default("dfixxer.toml");
+
             let source = load_file(&arguments.filename)?;
             let tree = parse_to_tree(&source)?;
             let kuses_nodes = find_kuses_nodes(&tree, &source);
@@ -278,7 +289,7 @@ fn run() -> Result<(), DfixxerError> {
                         );
                         None
                     }
-                    UsesSection::UsesSectionParsed { .. } => transform_to_replacement(section),
+                    UsesSection::UsesSectionParsed { .. } => transform_to_replacement(section, &options),
                 })
                 .collect();
 
@@ -289,7 +300,15 @@ fn run() -> Result<(), DfixxerError> {
         }
         Command::InitConfig => {
             println!("Initializing configuration...");
-            // TODO: Implement init-config functionality
+            match Options::create_default_config("dfixxer.toml") {
+                Ok(()) => println!("Created default configuration file: dfixxer.toml"),
+                Err(e) => {
+                    return Err(DfixxerError::ConfigError(format!(
+                        "Failed to create config file: {}",
+                        e
+                    )));
+                }
+            }
         }
     }
 
