@@ -7,6 +7,62 @@ pub struct TextReplacement {
     pub text: String,
 }
 
+impl TextReplacement {
+    /// Get the line and column numbers for a given position in the source text
+    fn get_line_column(source: &str, position: usize) -> (usize, usize) {
+        let mut line = 1;
+        let mut column = 1;
+
+        for (i, ch) in source.char_indices() {
+            if i >= position {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                column = 1;
+            } else {
+                column += 1;
+            }
+        }
+
+        (line, column)
+    }
+
+    /// Get the original text that would be replaced
+    fn get_original_text<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.start..self.end]
+    }
+}
+
+pub fn print_replacements(original_source: &str, replacements: &[TextReplacement]) {
+    if replacements.is_empty() {
+        return;
+    }
+
+    for (i, replacement) in replacements.iter().enumerate() {
+        let (start_line, start_col) =
+            TextReplacement::get_line_column(original_source, replacement.start);
+        let (end_line, end_col) =
+            TextReplacement::get_line_column(original_source, replacement.end);
+        let original_text = replacement.get_original_text(original_source);
+
+        println!("Replacement {}:", i + 1);
+        println!(
+            "  Location: {}:{}-{}:{}",
+            start_line, start_col, end_line, end_col
+        );
+        println!("  Original:");
+        for line in original_text.lines() {
+            println!("    - {}", line);
+        }
+        println!("  Replacement:");
+        for line in replacement.text.lines() {
+            println!("    + {}", line);
+        }
+        println!();
+    }
+}
+
 pub fn apply_replacements(
     filename: &str,
     original_source: &str,

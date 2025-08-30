@@ -36,6 +36,7 @@ impl LogLevel {
 #[derive(Debug)]
 pub enum Command {
     UpdateFile,
+    CheckFile,
     InitConfig,
 }
 
@@ -62,6 +63,14 @@ enum CliCommand {
     /// Update a file using configuration rules
     Update {
         /// The filename to update
+        filename: String,
+        /// Path to the configuration file
+        #[arg(long = "config")]
+        config: Option<String>,
+    },
+    /// Check a file and show what would be changed without modifying it
+    Check {
+        /// The filename to check
         filename: String,
         /// Path to the configuration file
         #[arg(long = "config")]
@@ -119,6 +128,20 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
 
             Ok(Arguments {
                 command: Command::UpdateFile,
+                filename,
+                config_path,
+                log_level: cli.log_level,
+            })
+        }
+        CliCommand::Check { filename, config } => {
+            // If --config was not provided, try to find dfixxer.toml upward from the file's directory
+            let config_path = match config {
+                Some(path) => Some(path),
+                None => find_config_for_filename(&filename),
+            };
+
+            Ok(Arguments {
+                command: Command::CheckFile,
                 filename,
                 config_path,
                 log_level: cli.log_level,

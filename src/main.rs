@@ -6,7 +6,7 @@ mod options;
 use options::Options;
 mod replacements;
 mod uses_section;
-use replacements::{TextReplacement, apply_replacements};
+use replacements::{TextReplacement, apply_replacements, print_replacements};
 mod parser;
 use parser::parse;
 
@@ -68,6 +68,36 @@ fn load_file(filename: &str) -> Result<String, DFixxerError> {
     Ok(std::fs::read_to_string(filename)?)
 }
 
+/// Process a file and return the replacements that would be made
+fn process_file(
+    filename: &str,
+    config_path: Option<&str>,
+    timing: &mut TimingCollector,
+) -> Result<(String, Vec<TextReplacement>), DFixxerError> {
+    // Load options from config file, or use defaults if not found
+    let config_path = config_path.unwrap_or("dfixxer.toml");
+    let options: Options = Options::load_or_default(config_path);
+
+    // Time file loading
+    let source = timing.time_operation_result("File loading", || load_file(filename))?;
+
+    // Time parsing
+    let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
+
+    // Time transformation
+    let replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
+        parse_result
+            .uses_sections
+            .iter()
+            .filter_map(|uses_section| {
+                transform_parser_uses_section_to_replacement(uses_section, &options, &source)
+            })
+            .collect()
+    });
+
+    Ok((source, replacements))
+}
+
 fn run() -> Result<(), DFixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
@@ -76,32 +106,11 @@ fn run() -> Result<(), DFixxerError> {
         Command::UpdateFile => {
             let mut timing = TimingCollector::new();
 
-            // Load options from config file, or use defaults if not found
-            let config_path = arguments.config_path.as_deref().unwrap_or("dfixxer.toml");
-            let options: Options = Options::load_or_default(config_path);
-
-            // Time file loading
-            let source =
-                timing.time_operation_result("File loading", || load_file(&arguments.filename))?;
-
-            // Time parsing
-            let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
-
-            // Time transformation
-            let replacements: Vec<TextReplacement> =
-                timing.time_operation("Transformation", || {
-                    parse_result
-                        .uses_sections
-                        .iter()
-                        .filter_map(|uses_section| {
-                            transform_parser_uses_section_to_replacement(
-                                uses_section,
-                                &options,
-                                &source,
-                            )
-                        })
-                        .collect()
-                });
+            let (source, replacements) = process_file(
+                &arguments.filename,
+                arguments.config_path.as_deref(),
+                &mut timing,
+            )?;
 
             // Time applying replacements
             if !replacements.is_empty() {
@@ -109,6 +118,21 @@ fn run() -> Result<(), DFixxerError> {
                     apply_replacements(&arguments.filename, &source, replacements)
                 })?;
             }
+
+            // Log the timing summary
+            timing.log_summary();
+        }
+        Command::CheckFile => {
+            let mut timing = TimingCollector::new();
+
+            let (source, replacements) = process_file(
+                &arguments.filename,
+                arguments.config_path.as_deref(),
+                &mut timing,
+            )?;
+
+            // Print replacements instead of applying them
+            print_replacements(&source, &replacements);
 
             // Log the timing summary
             timing.log_summary();
