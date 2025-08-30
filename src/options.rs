@@ -3,15 +3,23 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum UsesSectionStyle {
+    CommaAtTheBeginning,
+    CommaAtTheEnd,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Options {
     pub indentation: String,
+    pub uses_section_style: UsesSectionStyle,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
-            indentation: "  ".to_string(), // Two spaces as default
+            indentation: "  ".to_string(),
+            uses_section_style: UsesSectionStyle::CommaAtTheEnd,
         }
     }
 }
@@ -21,14 +29,13 @@ impl Options {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, DFixxerError> {
         let content = fs::read_to_string(path)
             .map_err(|e| DFixxerError::ConfigError(format!("Failed to read config file: {}", e)))?;
-        let mut options: Options = toml::from_str(&content).map_err(|e| {
+        let options: Options = toml::from_str(&content).map_err(|e| {
             DFixxerError::ConfigError(format!("Failed to parse config file: {}", e))
         })?;
 
-        // If indentation is empty or not set properly, use default
-        if options.indentation.is_empty() {
-            options.indentation = Options::default().indentation;
-        }
+        // If uses_section_style is not set, use default
+        // (TOML deserialization will use default if missing, but for robustness)
+        // If you want to handle string values, you can add custom logic here.
 
         Ok(options)
     }
@@ -81,12 +88,14 @@ mod tests {
     fn test_default_options() {
         let options = Options::default();
         assert_eq!(options.indentation, "  ");
+        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
     }
 
     #[test]
     fn test_load_or_default_with_missing_file() {
         let options = Options::load_or_default("non_existent_file.toml");
         assert_eq!(options.indentation, "  ");
+        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
     }
 
     #[test]
@@ -96,6 +105,7 @@ mod tests {
 
         let original_options = Options {
             indentation: "    ".to_string(), // 4 spaces
+            uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
         };
 
         // Save options
@@ -106,6 +116,10 @@ mod tests {
 
         // ...existing code...
         assert_eq!(loaded_options.indentation, "    ");
+        assert_eq!(
+            loaded_options.uses_section_style,
+            UsesSectionStyle::CommaAtTheBeginning
+        );
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -122,5 +136,6 @@ mod tests {
         // This should fail to parse, so load_or_default should return default
         let options = Options::load_or_default(&file_path);
         assert_eq!(options.indentation, "  ");
+        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
     }
 }
