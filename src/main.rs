@@ -154,7 +154,7 @@ fn run() -> Result<(), DFixxerError> {
 fn main() {
     // Parse arguments first to get log level
     let args: Vec<String> = std::env::args().collect();
-    if let Ok(arguments) = parse_args(args) {
+    if let Ok(arguments) = parse_args(args.clone()) {
         // Set log level from command line arguments if provided
         if let Some(log_level) = &arguments.log_level {
             unsafe {

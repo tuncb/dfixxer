@@ -116,7 +116,22 @@ pub fn find_config_for_filename(filename: &str) -> Option<String> {
 
 pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
     // Parse arguments using clap
-    let cli = Cli::try_parse_from(&args).map_err(|e| DFixxerError::InvalidArgs(e.to_string()))?;
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(cli) => cli,
+        Err(e) => {
+            // Check if this is a help or version request (which should exit with code 0)
+            if e.kind() == clap::error::ErrorKind::DisplayHelp
+                || e.kind() == clap::error::ErrorKind::DisplayVersion
+            {
+                // Print the help/version and exit successfully
+                print!("{}", e);
+                std::process::exit(0);
+            } else {
+                // For other errors, return as DFixxerError
+                return Err(DFixxerError::InvalidArgs(e.to_string()));
+            }
+        }
+    };
 
     match cli.command {
         CliCommand::Update { filename, config } => {
