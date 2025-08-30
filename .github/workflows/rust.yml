@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: version
+      run: cargo --version
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
