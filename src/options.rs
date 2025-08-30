@@ -56,9 +56,21 @@ impl Options {
 
 #[cfg(test)]
 mod tests {
+    /// Helper to create a unique temp directory for tests
+    fn create_unique_temp_dir() -> std::path::PathBuf {
+        let mut temp_path = env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        temp_path.push(format!("dfixxer_test_{}", unique));
+        fs::create_dir_all(&temp_path).unwrap();
+        temp_path
+    }
     use super::*;
+    use std::env;
     use std::fs;
-    use tempfile::tempdir;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_default_options() {
@@ -74,8 +86,8 @@ mod tests {
 
     #[test]
     fn test_save_and_load() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test_config.toml");
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("test_config.toml");
 
         let original_options = Options {
             indentation: "    ".to_string(), // 4 spaces
@@ -87,13 +99,17 @@ mod tests {
         // Load options
         let loaded_options = Options::load_from_file(&file_path).unwrap();
 
+        // ...existing code...
         assert_eq!(loaded_options.indentation, "    ");
+        // Manual cleanup
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
     }
 
     #[test]
     fn test_partial_toml_file() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("partial_config.toml");
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("partial_config.toml");
 
         // Create a TOML file with missing indentation field
         fs::write(&file_path, "# Config file with no indentation setting").unwrap();
