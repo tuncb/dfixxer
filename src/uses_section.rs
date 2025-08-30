@@ -41,7 +41,7 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
 
     let override_namespaces = &options.override_sorting_order;
     if override_namespaces.is_empty() {
-        modules.sort();
+        modules.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
         return modules;
     }
 
@@ -65,8 +65,8 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
             rest.push(m);
         }
     }
-    prioritized.sort();
-    rest.sort();
+    prioritized.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    rest.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
     prioritized.into_iter().chain(rest.into_iter()).collect()
 }
 
