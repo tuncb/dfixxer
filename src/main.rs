@@ -234,7 +234,7 @@ fn run() -> Result<(), DFixxerError> {
     match arguments.command {
         Command::UpdateFile => {
             // Load options from config file, or use defaults if not found
-            let options = Options::load_or_default("dfixxer.toml");
+            let options: Options = Options::load_or_default("dfixxer.toml");
 
             let source = load_file(&arguments.filename)?;
             let tree = parse_to_tree(&source)?;
@@ -277,10 +277,7 @@ fn run() -> Result<(), DFixxerError> {
             match Options::create_default_config("dfixxer.toml") {
                 Ok(()) => println!("Created default configuration file: dfixxer.toml"),
                 Err(e) => {
-                    return Err(DFixxerError::ConfigError(format!(
-                        "Failed to create config file: {}",
-                        e
-                    )));
+                    return Err(e);
                 }
             }
         }
