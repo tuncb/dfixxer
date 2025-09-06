@@ -120,14 +120,51 @@ pub fn transform_parser_uses_section_to_replacement(
     let sorted_modules = sort_modules(&modules, options);
 
     // Format the replacement text
-    let replacement_text = format_uses_replacement(&sorted_modules, options);
+    let mut replacement_text = format_uses_replacement(&sorted_modules, options);
+
+    // Determine the actual start position for replacement
+    let mut replacement_start = uses_section.uses.start_byte;
+
+    // Find the beginning of the line containing the uses section
+    let line_start = find_line_start(source, uses_section.uses.start_byte);
+
+    // Check what's between line start and uses section start
+    let prefix = &source[line_start..uses_section.uses.start_byte];
+
+    if prefix
+        .chars()
+        .all(|c| c.is_whitespace() && c != '\n' && c != '\r')
+    {
+        // Only whitespace characters before uses - remove them by extending replacement start
+        replacement_start = line_start;
+    } else if !prefix.is_empty() {
+        // Non-whitespace characters before uses - add a newline before the uses section
+        replacement_text = format!("{}{}", options.line_ending, replacement_text);
+    }
+    // If prefix is empty, uses is already at start of line, no adjustment needed
 
     // Create the text replacement
     Some(TextReplacement {
-        start: uses_section.uses.start_byte,
+        start: replacement_start,
         end: uses_section.semicolon.end_byte,
         text: replacement_text,
     })
+}
+
+/// Find the start of the line containing the given byte position
+fn find_line_start(source: &str, position: usize) -> usize {
+    if position == 0 {
+        return 0;
+    }
+
+    // Search backwards from position to find the start of the line
+    let bytes = source.as_bytes();
+    for i in (0..position).rev() {
+        if bytes[i] == b'\n' {
+            return i + 1; // Return position after the newline
+        }
+    }
+    0 // Beginning of file
 }
 
 #[cfg(test)]
@@ -231,5 +268,23 @@ mod tests {
         let expected = "uses\n  UnitA,\n  UnitB;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_find_line_start() {
+        let source = "line1\nline2\nline3";
+        assert_eq!(find_line_start(source, 0), 0); // Beginning of file
+        assert_eq!(find_line_start(source, 3), 0); // Middle of first line
+        assert_eq!(find_line_start(source, 6), 6); // Beginning of second line
+        assert_eq!(find_line_start(source, 9), 6); // Middle of second line
+        assert_eq!(find_line_start(source, 12), 12); // Beginning of third line
+    }
+
+    #[test]
+    fn test_find_line_start_single_line() {
+        let source = "single line";
+        assert_eq!(find_line_start(source, 0), 0);
+        assert_eq!(find_line_start(source, 5), 0);
+        assert_eq!(find_line_start(source, 10), 0);
     }
 }
