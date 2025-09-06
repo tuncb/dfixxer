@@ -67,6 +67,12 @@ Shows what changes would be made to the uses section(s) without modifying the fi
 **Options:**
 - `--config <path>`: Path to configuration file (same behavior as `update`)
 
+**Exit Code:**
+- Returns the number of replacements that would be made as the exit code
+- `0` if no changes are needed
+- `N` (where N > 0) if N replacements would be made
+- `1` if an error occurred (with error message printed to stderr)
+
 #### `init-config` - Create default configuration
 
 ```
@@ -80,7 +86,8 @@ Creates a default configuration file at the specified path.
 
 ### Exit Codes
 
-- `0`: Success
+- `0`: Success (no changes needed for `check` command, or successful completion for other commands)
+- `N` (where N > 0): For `check` command only - indicates N replacements would be made
 - `1`: Error occurred (message printed to stderr)
 
 ### Processing Notes
@@ -107,6 +114,21 @@ Creates a default configuration file at the specified path.
 
 ```pwsh
 ./target/debug/dfixxer check .\examples\simple.pas
+```
+
+#### Check for changes and use exit code in scripts
+
+```pwsh
+# Check file and capture the number of replacements
+./target/debug/dfixxer check .\examples\simple.pas
+$replacements = $LASTEXITCODE
+if ($replacements -eq 0) {
+    Write-Host "File is already properly formatted"
+} elseif ($replacements -gt 0) {
+    Write-Host "File needs $replacements changes"
+} else {
+    Write-Host "Error checking file"
+}
 ```
 
 #### Create a default config file
