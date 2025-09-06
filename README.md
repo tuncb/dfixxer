@@ -178,7 +178,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 - **Default**: `[]` (empty array)
 - **Example**: `["System", "Vcl", "FireDAC"]`
 
-#### `modules_names_to_update` (array of strings)
+#### `module_names_to_update` (array of strings)
 - **Purpose**: Map short unit names to fully-qualified names
 - **Format**: Each entry is `"Prefix:ShortName"`
 - **Behavior**: When the tool encounters `ShortName`, it rewrites it to `Prefix.ShortName` before sorting/formatting
@@ -201,7 +201,7 @@ line_ending = "Lf"
 override_sorting_order = ["System", "Vcl", "FireDAC"]
 
 # Automatically qualify common unit names
-modules_names_to_update = [
+module_names_to_update = [
     "System:Classes",
     "System:SysUtils",
     "System:Variants",
@@ -252,7 +252,7 @@ uses
 ```toml
 indentation = "    "
 override_sorting_order = ["System", "Vcl"]
-modules_names_to_update = [
+module_names_to_update = [
     "System:Classes",
     "Vcl:Forms"
 ]

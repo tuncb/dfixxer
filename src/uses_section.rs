@@ -43,8 +43,8 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
 fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     let mut modules = modules.clone();
 
-    // Apply modules_names_to_update: e.g. "System:Classes" means replace "Classes" with "System.Classes"
-    for mapping in &options.modules_names_to_update {
+    // Apply module_names_to_update: e.g. "System:Classes" means replace "Classes" with "System.Classes"
+    for mapping in &options.module_names_to_update {
         if let Some((prefix, name)) = mapping.split_once(':') {
             for module in modules.iter_mut() {
                 if module == name {
