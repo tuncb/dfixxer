@@ -90,6 +90,26 @@ fn test_update_smoke() {
     let test_data_dir = Path::new("test-data");
     let temp_dir = create_unique_temp_dir();
 
+    // Ensure configuration files are available in the temp directory by
+    // copying all dfixxer.toml files while preserving relative paths.
+    for entry in WalkDir::new(test_data_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name == "dfixxer.toml" {
+                let rel_path = path.strip_prefix(test_data_dir).unwrap();
+                let temp_file = temp_dir.join(rel_path);
+                if let Some(parent) = temp_file.parent() {
+                    fs::create_dir_all(parent).unwrap();
+                }
+                fs::copy(&path, &temp_file).expect("Failed to copy config to temp");
+            }
+        }
+    }
+
     for entry in WalkDir::new(test_data_dir)
         .into_iter()
         .filter_map(|e| e.ok())
