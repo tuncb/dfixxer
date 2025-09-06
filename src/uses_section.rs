@@ -151,6 +151,11 @@ pub fn transform_parser_uses_section_to_replacement(
     // If prefix is empty, uses is already at start of line, no adjustment needed
 
     // Create the text replacement
+    // If replacement_text is the same as the original uses section and starts at the same position, return None
+    let original_text = &source[replacement_start..uses_section.semicolon.end_byte];
+    if replacement_text == original_text {
+        return None;
+    }
     Some(TextReplacement {
         start: replacement_start,
         end: uses_section.semicolon.end_byte,
