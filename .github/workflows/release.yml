@@ -96,43 +96,15 @@ jobs:
         id: tag
         run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create or Update Release
+        id: release
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.tag_name }}
-          release_name: Release ${{ steps.tag.outputs.tag_name }}
+          name: Release ${{ steps.tag.outputs.tag_name }}
           draft: false
           prerelease: false
-
-      - name: Upload Windows Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/dfixxer-windows-x86_64.exe/dfixxer-windows-x86_64.exe
-          asset_name: dfixxer-windows-x86_64.exe
-          asset_content_type: application/octet-stream
-
-      - name: Upload Linux Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/dfixxer-linux-x86_64/dfixxer-linux-x86_64
-          asset_name: dfixxer-linux-x86_64
-          asset_content_type: application/octet-stream
-
-      - name: Upload macOS Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/dfixxer-macos-x86_64/dfixxer-macos-x86_64
-          asset_name: dfixxer-macos-x86_64
-          asset_content_type: application/octet-stream
+          files: |
+            ./artifacts/dfixxer-windows-x86_64.exe/dfixxer-windows-x86_64.exe
+            ./artifacts/dfixxer-linux-x86_64/dfixxer-linux-x86_64
+            ./artifacts/dfixxer-macos-x86_64/dfixxer-macos-x86_64
