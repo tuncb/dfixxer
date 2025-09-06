@@ -35,8 +35,8 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
     // Show full content comparison like assert_eq!
     let mut diff_info = format!("assertion failed: `(left == right)`\n");
     diff_info.push_str(&format!("Mismatch for file: {}\n", file_name));
-    diff_info.push_str(&format!("left:\n{}\n", actual_content));
-    diff_info.push_str(&format!("right:\n{}\n", expected_content));
+    diff_info.push_str(&format!("left:\n{:?}\n", actual_content));
+    diff_info.push_str(&format!("right:\n{:?}\n", expected_content));
 
     // Show detailed diff information
     let actual_lines: Vec<&str> = actual_content.lines().collect();
@@ -54,7 +54,7 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
     {
         if actual_line != expected_line {
             diff_info.push_str(&format!(
-                "Line {}: \n  Actual:   '{}'\n  Expected: '{}'\n",
+                "Line {}: \n  Actual:   {:?}\n  Expected: {:?}\n",
                 i + 1,
                 actual_line,
                 expected_line
