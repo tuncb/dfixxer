@@ -2,6 +2,4 @@ indentation = "  "
 uses_section_style = "CommaAtTheBeginning"
 override_sorting_order = []
 modules_names_to_update = []
-line_ending = """
-\r
-"""
+line_ending = "Auto"

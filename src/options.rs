@@ -9,13 +9,36 @@ pub enum UsesSectionStyle {
     CommaAtTheEnd,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum LineEnding {
+    Auto,
+    Crlf,
+    Lf,
+}
+
+impl LineEnding {
+    /// Convert the LineEnding enum to the actual line ending string
+    pub fn to_string(&self) -> String {
+        match self {
+            LineEnding::Auto => {
+                #[cfg(windows)]
+                return "\r\n".to_string();
+                #[cfg(not(windows))]
+                return "\n".to_string();
+            }
+            LineEnding::Crlf => "\r\n".to_string(),
+            LineEnding::Lf => "\n".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Options {
     pub indentation: String,
     pub uses_section_style: UsesSectionStyle,
     pub override_sorting_order: Vec<String>,
     pub modules_names_to_update: Vec<String>,
-    pub line_ending: String,
+    pub line_ending: LineEnding,
 }
 
 impl Default for Options {
@@ -25,7 +48,7 @@ impl Default for Options {
             uses_section_style: UsesSectionStyle::CommaAtTheEnd,
             override_sorting_order: Vec::new(),
             modules_names_to_update: Vec::new(),
-            line_ending: "\r\n".to_string(),
+            line_ending: LineEnding::Auto,
         }
     }
 }
@@ -97,7 +120,7 @@ mod tests {
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.modules_names_to_update, Vec::<String>::new());
-        assert_eq!(options.line_ending, "\r\n");
+        assert_eq!(options.line_ending, LineEnding::Auto);
     }
 
     #[test]
@@ -107,7 +130,7 @@ mod tests {
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.modules_names_to_update, Vec::<String>::new());
-        assert_eq!(options.line_ending, "\r\n");
+        assert_eq!(options.line_ending, LineEnding::Auto);
     }
 
     #[test]
@@ -120,7 +143,7 @@ mod tests {
             uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
             override_sorting_order: vec!["test_error".to_string()],
             modules_names_to_update: Vec::new(),
-            line_ending: "\n".to_string(),
+            line_ending: LineEnding::Lf,
         };
 
         // Save options
@@ -140,7 +163,7 @@ mod tests {
             vec!["test_error".to_string()]
         );
         assert_eq!(loaded_options.modules_names_to_update, Vec::<String>::new());
-        assert_eq!(loaded_options.line_ending, "\n");
+        assert_eq!(loaded_options.line_ending, LineEnding::Lf);
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -160,6 +183,96 @@ mod tests {
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.modules_names_to_update, Vec::<String>::new());
-        assert_eq!(options.line_ending, "\r\n");
+        assert_eq!(options.line_ending, LineEnding::Auto);
+    }
+
+    #[test]
+    fn test_line_ending_to_string() {
+        assert_eq!(LineEnding::Lf.to_string(), "\n");
+        assert_eq!(LineEnding::Crlf.to_string(), "\r\n");
+
+        // Test Auto - it should match OS default
+        #[cfg(windows)]
+        assert_eq!(LineEnding::Auto.to_string(), "\r\n");
+        #[cfg(not(windows))]
+        assert_eq!(LineEnding::Auto.to_string(), "\n");
+    }
+
+    #[test]
+    fn test_line_ending_direct_usage() {
+        let mut options = Options::default();
+
+        options.line_ending = LineEnding::Lf;
+        assert_eq!(options.line_ending.to_string(), "\n");
+
+        options.line_ending = LineEnding::Crlf;
+        assert_eq!(options.line_ending.to_string(), "\r\n");
+
+        options.line_ending = LineEnding::Auto;
+        #[cfg(windows)]
+        assert_eq!(options.line_ending.to_string(), "\r\n");
+        #[cfg(not(windows))]
+        assert_eq!(options.line_ending.to_string(), "\n");
+    }
+
+    #[test]
+    fn test_config_loading_with_different_line_endings() {
+        // Test loading config with Auto
+        let temp_path = create_unique_temp_dir();
+        let auto_config_path = temp_path.join("auto_config.toml");
+        fs::write(
+            &auto_config_path,
+            r#"
+indentation = "  "
+uses_section_style = "CommaAtTheEnd"
+override_sorting_order = []
+modules_names_to_update = []
+line_ending = "Auto"
+"#,
+        )
+        .unwrap();
+
+        let options = Options::load_from_file(&auto_config_path).unwrap();
+        assert_eq!(options.line_ending, LineEnding::Auto);
+
+        // Test loading config with Lf
+        let lf_config_path = temp_path.join("lf_config.toml");
+        fs::write(
+            &lf_config_path,
+            r#"
+indentation = "  "
+uses_section_style = "CommaAtTheEnd"
+override_sorting_order = []
+modules_names_to_update = []
+line_ending = "Lf"
+"#,
+        )
+        .unwrap();
+
+        let options = Options::load_from_file(&lf_config_path).unwrap();
+        assert_eq!(options.line_ending, LineEnding::Lf);
+
+        // Test loading config with Crlf
+        let crlf_config_path = temp_path.join("crlf_config.toml");
+        fs::write(
+            &crlf_config_path,
+            r#"
+indentation = "  "
+uses_section_style = "CommaAtTheEnd"
+override_sorting_order = []
+modules_names_to_update = []
+line_ending = "Crlf"
+"#,
+        )
+        .unwrap();
+
+        let options = Options::load_from_file(&crlf_config_path).unwrap();
+        assert_eq!(options.line_ending, LineEnding::Crlf);
+
+        // Clean up
+        fs::remove_file(&auto_config_path).ok();
+        fs::remove_file(&lf_config_path).ok();
+        fs::remove_file(&crlf_config_path).ok();
+        fs::remove_dir(&temp_path).ok();
     }
 }

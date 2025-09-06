@@ -18,16 +18,21 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
             lines.push(format!("{};", options.indentation));
             format!(
                 "uses{}{}",
-                options.line_ending,
-                lines.join(&options.line_ending)
+                options.line_ending.to_string(),
+                lines.join(&options.line_ending.to_string())
             )
         }
         _ => {
-            let modules_text =
-                modules.join(&format!(",{}{}", options.line_ending, options.indentation));
+            let modules_text = modules.join(&format!(
+                ",{}{}",
+                options.line_ending.to_string(),
+                options.indentation
+            ));
             format!(
                 "uses{}{}{};",
-                options.line_ending, options.indentation, modules_text
+                options.line_ending.to_string(),
+                options.indentation,
+                modules_text
             )
         }
     }
@@ -139,7 +144,7 @@ pub fn transform_parser_uses_section_to_replacement(
         replacement_start = line_start;
     } else if !prefix.is_empty() {
         // Non-whitespace characters before uses - add a newline before the uses section
-        replacement_text = format!("{}{}", options.line_ending, replacement_text);
+        replacement_text = format!("{}{}", options.line_ending.to_string(), replacement_text);
     }
     // If prefix is empty, uses is already at start of line, no adjustment needed
 
@@ -264,7 +269,7 @@ mod tests {
     fn test_format_uses_replacement_with_custom_line_ending() {
         let modules = vec!["UnitA".to_string(), "UnitB".to_string()];
         let mut options = make_options(UsesSectionStyle::CommaAtTheEnd, "  ");
-        options.line_ending = "\n".to_string(); // Use Unix line ending
+        options.line_ending = crate::options::LineEnding::Lf; // Use Unix line ending
         let expected = "uses\n  UnitA,\n  UnitB;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
