@@ -86,6 +86,24 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
 }
 
 #[test]
+fn test_check_correct_files() {
+    let check_dir = Path::new("test-data\\check-correct");
+    for entry in WalkDir::new(check_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+        let status = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
+            .arg("check")
+            .arg(&path)
+            .status()
+            .expect("Failed to run check command");
+        assert!(status.success(), "Check command failed for {:?}", path);
+    }
+}
+
+#[test]
 fn test_update_smoke() {
     let test_data_dir = Path::new("test-data\\update");
     let temp_dir = create_unique_temp_dir();

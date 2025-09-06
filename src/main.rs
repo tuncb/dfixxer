@@ -98,7 +98,7 @@ fn process_file(
     Ok((source, replacements))
 }
 
-fn run() -> Result<(), DFixxerError> {
+fn run() -> Result<i32, DFixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
 
@@ -121,6 +121,7 @@ fn run() -> Result<(), DFixxerError> {
 
             // Log the timing summary
             timing.log_summary();
+            Ok(0)
         }
         Command::CheckFile => {
             let mut timing = TimingCollector::new();
@@ -136,11 +137,17 @@ fn run() -> Result<(), DFixxerError> {
 
             // Log the timing summary
             timing.log_summary();
+
+            // Return the number of replacements as exit code
+            Ok(replacements.len() as i32)
         }
         Command::InitConfig => {
             println!("Initializing configuration...");
             match Options::create_default_config(&arguments.filename) {
-                Ok(()) => println!("Created default configuration file: {}", arguments.filename),
+                Ok(()) => {
+                    println!("Created default configuration file: {}", arguments.filename);
+                    Ok(0)
+                }
                 Err(e) => {
                     return Err(e);
                 }
@@ -150,10 +157,9 @@ fn run() -> Result<(), DFixxerError> {
             // Parse the file and print each node's kind and text using parse_raw
             let source = std::fs::read_to_string(&arguments.filename)?;
             parser::parse_raw(&source)?;
+            Ok(0)
         }
     }
-
-    Ok(())
 }
 
 fn main() {
@@ -172,10 +178,15 @@ fn main() {
 
     // Time the entire run function
     let start_total = Instant::now();
-    if let Err(e) = run() {
-        eprintln!("{}", e);
-        std::process::exit(1);
+    match run() {
+        Ok(exit_code) => {
+            let total_duration = start_total.elapsed();
+            log::info!("Total execution time: {:?}", total_duration);
+            std::process::exit(exit_code);
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
     }
-    let total_duration = start_total.elapsed();
-    log::info!("Total execution time: {:?}", total_duration);
 }
