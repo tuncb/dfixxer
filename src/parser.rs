@@ -169,3 +169,27 @@ pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
 
     Ok(ParseResult { uses_sections })
 }
+
+/// Parse the source, create the tree-sitter tree, and print each node's kind and text
+pub fn parse_raw(source: &str) -> Result<(), DFixxerError> {
+    let tree = parse_to_tree(source)?;
+    let root = tree.root_node();
+    fn print_node(node: tree_sitter::Node, depth: usize, source: &str) {
+        let indent = "  ".repeat(depth);
+        let kind = node.kind();
+        let text = node.utf8_text(source.as_bytes()).unwrap_or("");
+        println!("{}Node kind: {} | Text: {}", indent, kind, text);
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                print_node(child, depth + 1, source);
+            }
+        }
+    }
+    // Skip printing the root node, print only its children
+    for i in 0..root.child_count() {
+        if let Some(child) = root.child(i) {
+            print_node(child, 0, source);
+        }
+    }
+    Ok(())
+}

@@ -146,6 +146,11 @@ fn run() -> Result<(), DFixxerError> {
                 }
             }
         }
+        Command::Parse => {
+            // Parse the file and print each node's kind and text using parse_raw
+            let source = std::fs::read_to_string(&arguments.filename)?;
+            parser::parse_raw(&source)?;
+        }
     }
 
     Ok(())

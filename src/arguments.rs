@@ -38,6 +38,7 @@ pub enum Command {
     UpdateFile,
     CheckFile,
     InitConfig,
+    Parse,
 }
 
 pub struct Arguments {
@@ -79,6 +80,11 @@ enum CliCommand {
     /// Initialize configuration for a file
     InitConfig {
         /// The filename to initialize configuration for
+        filename: String,
+    },
+    /// Parse a file and print its AST
+    Parse {
+        /// The filename to parse
         filename: String,
     },
 }
@@ -164,6 +170,12 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
         }
         CliCommand::InitConfig { filename } => Ok(Arguments {
             command: Command::InitConfig,
+            filename,
+            config_path: None,
+            log_level: cli.log_level,
+        }),
+        CliCommand::Parse { filename } => Ok(Arguments {
+            command: Command::Parse,
             filename,
             config_path: None,
             log_level: cli.log_level,
