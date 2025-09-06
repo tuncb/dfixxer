@@ -177,10 +177,15 @@ mod tests {
     use super::*;
     use crate::options::{Options, UsesSectionStyle};
 
-    fn make_options(style: UsesSectionStyle, indentation: &str) -> Options {
+    fn make_options(
+        style: UsesSectionStyle,
+        indentation: &str,
+        line_ending: crate::options::LineEnding,
+    ) -> Options {
         Options {
             uses_section_style: style,
             indentation: indentation.to_string(),
+            line_ending,
             // ...other fields with default values...
             ..Default::default()
         }
@@ -193,7 +198,11 @@ mod tests {
             "UnitB".to_string(),
             "UnitC".to_string(),
         ];
-        let options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        let options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
         let expected = "uses\r\n    UnitA\r\n    , UnitB\r\n    , UnitC\r\n    ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
@@ -206,7 +215,11 @@ mod tests {
             "UnitB".to_string(),
             "UnitC".to_string(),
         ];
-        let options = make_options(UsesSectionStyle::CommaAtTheEnd, "    ");
+        let options = make_options(
+            UsesSectionStyle::CommaAtTheEnd,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
         let expected = "uses\r\n    UnitA,\r\n    UnitB,\r\n    UnitC;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
@@ -215,7 +228,11 @@ mod tests {
     #[test]
     fn test_format_uses_replacement_empty_modules() {
         let modules: Vec<String> = vec![];
-        let options = make_options(UsesSectionStyle::CommaAtTheBeginning, "  ");
+        let options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "  ",
+            crate::options::LineEnding::Crlf,
+        );
         let expected = "uses\r\n  ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
@@ -231,7 +248,11 @@ mod tests {
             "SystemA".to_string(),
             "AbcB".to_string(),
         ];
-        let mut options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        let mut options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
         options.override_sorting_order = vec!["System".to_string(), "Abc".to_string()];
         let sorted = sort_modules(&modules, &options);
         let expected = vec!["Abc.B", "System.A", "A", "AbcB", "B", "SystemA"];
@@ -242,7 +263,11 @@ mod tests {
     #[test]
     fn test_sort_modules_without_override_namespaces() {
         let modules = vec!["B".to_string(), "A".to_string(), "C".to_string()];
-        let mut options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        let mut options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
         options.override_sorting_order = vec![];
         let sorted = sort_modules(&modules, &options);
         let expected = vec!["A", "B", "C"];
@@ -257,7 +282,11 @@ mod tests {
             "A.B".to_string(),
             "SystemA.B".to_string(),
         ];
-        let mut options = make_options(UsesSectionStyle::CommaAtTheBeginning, "    ");
+        let mut options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
         options.override_sorting_order = vec!["System".to_string()];
         let sorted = sort_modules(&modules, &options);
         let expected = vec!["A.B", "SystemA.B", "X.Y"];
@@ -268,8 +297,11 @@ mod tests {
     #[test]
     fn test_format_uses_replacement_with_custom_line_ending() {
         let modules = vec!["UnitA".to_string(), "UnitB".to_string()];
-        let mut options = make_options(UsesSectionStyle::CommaAtTheEnd, "  ");
-        options.line_ending = crate::options::LineEnding::Lf; // Use Unix line ending
+        let options = make_options(
+            UsesSectionStyle::CommaAtTheEnd,
+            "  ",
+            crate::options::LineEnding::Lf,
+        );
         let expected = "uses\n  UnitA,\n  UnitB;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
