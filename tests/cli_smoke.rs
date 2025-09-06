@@ -87,7 +87,7 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
 
 #[test]
 fn test_update_smoke() {
-    let test_data_dir = Path::new("test-data");
+    let test_data_dir = Path::new("test-data\\update");
     let temp_dir = create_unique_temp_dir();
 
     // Ensure configuration files are available in the temp directory by
