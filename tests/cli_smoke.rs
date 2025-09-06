@@ -4,6 +4,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+use walkdir::WalkDir;
 
 #[test]
 fn test_help_output() {
@@ -89,12 +90,20 @@ fn test_update_smoke() {
     let test_data_dir = Path::new("test-data");
     let temp_dir = create_unique_temp_dir();
 
-    for entry in fs::read_dir(test_data_dir).expect("Failed to read test-data dir") {
-        let entry = entry.expect("Failed to read entry");
+    for entry in WalkDir::new(test_data_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
         let path = entry.path();
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name.ends_with(".original.test.pas") {
-                let temp_file = temp_dir.join(name);
+                // To avoid name collisions, preserve relative path in temp dir
+                let rel_path = path.strip_prefix(test_data_dir).unwrap();
+                let temp_file = temp_dir.join(rel_path);
+                if let Some(parent) = temp_file.parent() {
+                    fs::create_dir_all(parent).unwrap();
+                }
                 fs::copy(&path, &temp_file).expect("Failed to copy file to temp");
 
                 // Run the update command
@@ -111,7 +120,7 @@ fn test_update_smoke() {
 
                 // Compare with correct file
                 let correct_name = name.replace("original", "correct");
-                let correct_file = test_data_dir.join(correct_name);
+                let correct_file = path.with_file_name(correct_name);
                 let updated_content =
                     fs::read_to_string(&temp_file).expect("Failed to read updated file");
                 let correct_content =
