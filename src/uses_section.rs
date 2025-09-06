@@ -10,7 +10,9 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
         UsesSectionStyle::CommaAtTheBeginning => {
             let mut lines = Vec::new();
             if let Some(first) = modules.get(0) {
-                lines.push(format!("{}{}", options.indentation, first));
+                // First unit: {indentation}{two spaces}{unit}
+                lines.push(format!("{}  {}", options.indentation, first));
+                // Following units: {indentation}, {unit}
                 for module in modules.iter().skip(1) {
                     lines.push(format!("{}, {}", options.indentation, module));
                 }
@@ -200,10 +202,11 @@ mod tests {
         ];
         let options = make_options(
             UsesSectionStyle::CommaAtTheBeginning,
-            "    ",
+            "  ",
             crate::options::LineEnding::Crlf,
         );
-        let expected = "uses\r\n    UnitA\r\n    , UnitB\r\n    , UnitC\r\n    ;";
+        // With the new style, the first unit has two extra spaces beyond indentation
+        let expected = "uses\r\n    UnitA\r\n  , UnitB\r\n  , UnitC\r\n  ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
     }
