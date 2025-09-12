@@ -35,8 +35,17 @@ pub struct ParsedNode {
 
 impl std::fmt::Debug for ParsedNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ParsedNode {{ kind: {:?}, start_byte: {}, end_byte: {}, start_row: {}, start_column: {}, end_row: {}, end_column: {} }}", 
-               self.kind, self.start_byte, self.end_byte, self.start_row, self.start_column, self.end_row, self.end_column)
+        write!(
+            f,
+            "ParsedNode {{ kind: {:?}, start_byte: {}, end_byte: {}, start_row: {}, start_column: {}, end_row: {}, end_column: {} }}",
+            self.kind,
+            self.start_byte,
+            self.end_byte,
+            self.start_row,
+            self.start_column,
+            self.end_row,
+            self.end_column
+        )
     }
 }
 
@@ -115,9 +124,11 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
     }
 }
 
-
 /// Generic transform function for kUses, kProgram, and kUnit nodes into a CodeSection
-fn transform_keyword_to_code_section(keyword_node: Node, keyword_kind: Kind) -> Option<CodeSection> {
+fn transform_keyword_to_code_section(
+    keyword_node: Node,
+    keyword_kind: Kind,
+) -> Option<CodeSection> {
     // Check if the starting node has an error
     if keyword_node.has_error() {
         return None;
@@ -126,8 +137,8 @@ fn transform_keyword_to_code_section(keyword_node: Node, keyword_kind: Kind) -> 
     // Get the parent node (should be declUses or declProgram)
     let parent = keyword_node.parent()?;
 
-    // Check parent for errors
-    if parent.has_error() {
+    // Check parent for errors, but skip for unit and program as they may cover the whole file
+    if parent.has_error() && keyword_kind == Kind::Uses {
         return None;
     }
 
@@ -169,7 +180,7 @@ fn transform_keyword_to_code_section(keyword_node: Node, keyword_kind: Kind) -> 
                     "moduleName" | "identifier" => {
                         found_module = true;
                         Kind::Module
-                    },
+                    }
                     "comment" => Kind::Comment,
                     "pp" => Kind::Preprocessor,
                     _ => {
@@ -212,7 +223,8 @@ pub fn parse_raw(source: &str) -> Result<(), DFixxerError> {
         let indent = "  ".repeat(depth);
         let kind = node.kind();
         let text = node.utf8_text(source.as_bytes()).unwrap_or("");
-        println!("{}Node kind: {} | Text: {}", indent, kind, text);
+        let error_info = if node.has_error() { " | ERROR" } else { "" };
+        println!("{}Node kind: {} | Text: {}{}", indent, kind, text, error_info);
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
                 print_node(child, depth + 1, source);
@@ -237,24 +249,27 @@ mod tests {
         let source = r#"program myProgram;
 begin
 end."#;
-        
+
         let result = parse(source).expect("Failed to parse");
-        
+
         // Should have one code section
         assert_eq!(result.code_sections.len(), 1);
-        
+
         let code_section = &result.code_sections[0];
-        
+
         // Check keyword node
         assert_eq!(code_section.keyword.kind, Kind::Program);
-        
+
         // Check siblings - should include module name and semicolon
         let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);
-        let has_semicolon = code_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
-        
+        let has_semicolon = code_section
+            .siblings
+            .iter()
+            .any(|s| s.kind == Kind::Semicolon);
+
         assert!(has_module, "Should have module name in siblings");
         assert!(has_semicolon, "Should have semicolon in siblings");
-        
+
         // Verify positions are reasonable
         assert_eq!(code_section.keyword.start_byte, 0);
     }
@@ -264,24 +279,27 @@ end."#;
         let source = r#"program myProgram;
 begin
 end."#;
-        
+
         let result = parse(source).expect("Failed to parse");
-        
+
         // Should have one code section
         assert_eq!(result.code_sections.len(), 1);
-        
+
         let code_section = &result.code_sections[0];
-        
+
         // Check keyword node is program type
         assert_eq!(code_section.keyword.kind, Kind::Program);
-        
+
         // Check siblings - should include module name and semicolon
         assert!(code_section.siblings.len() >= 1);
-        
+
         // Find module and semicolon in siblings
         let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);
-        let has_semicolon = code_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
-        
+        let has_semicolon = code_section
+            .siblings
+            .iter()
+            .any(|s| s.kind == Kind::Semicolon);
+
         assert!(has_module, "Should have module name in siblings");
         assert!(has_semicolon, "Should have semicolon in siblings");
     }
@@ -294,49 +312,61 @@ uses
   UnitB;
 begin
 end."#;
-        
+
         let result = parse(source).expect("Failed to parse");
-        
+
         // Should have two code sections (program and uses)
         assert_eq!(result.code_sections.len(), 2);
-        
+
         // Find the uses section
-        let uses_section = result.code_sections.iter()
+        let uses_section = result
+            .code_sections
+            .iter()
             .find(|cs| cs.keyword.kind == Kind::Uses)
             .expect("Should have uses section");
-        
+
         // Check siblings - should include modules and semicolon
-        let module_count = uses_section.siblings.iter().filter(|s| s.kind == Kind::Module).count();
-        let has_semicolon = uses_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
-        
+        let module_count = uses_section
+            .siblings
+            .iter()
+            .filter(|s| s.kind == Kind::Module)
+            .count();
+        let has_semicolon = uses_section
+            .siblings
+            .iter()
+            .any(|s| s.kind == Kind::Semicolon);
+
         assert_eq!(module_count, 2, "Should have two modules in siblings");
         assert!(has_semicolon, "Should have semicolon in siblings");
     }
 
     #[test]
     fn test_parse_code_section_unit() {
-        let source = r#"unit MyUnit;
+        let source = r#"UnIT   ex2 ;
 interface
 implementation
 end."#;
-        
+
         let result = parse(source).expect("Failed to parse");
-        
+
         // Should have one code section (unit)
         assert_eq!(result.code_sections.len(), 1);
-        
+
         let code_section = &result.code_sections[0];
-        
+
         // Check keyword node is unit type
         assert_eq!(code_section.keyword.kind, Kind::Unit);
-        
+
         // Check siblings - should include module name and semicolon
         let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);
-        let has_semicolon = code_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
-        
+        let has_semicolon = code_section
+            .siblings
+            .iter()
+            .any(|s| s.kind == Kind::Semicolon);
+
         assert!(has_module, "Should have module name in siblings");
         assert!(has_semicolon, "Should have semicolon in siblings");
-        
+
         // Verify positions are reasonable
         assert_eq!(code_section.keyword.start_byte, 0);
     }
