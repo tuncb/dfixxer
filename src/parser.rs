@@ -8,6 +8,10 @@ pub enum Kind {
     Uses,
     Program,
     Unit,
+    Interface,
+    Implementation,
+    Initialization,
+    Finalization,
     Semicolon,
     Module,
     Comment,
@@ -113,6 +117,34 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
             // Continue parsing after this unit statement (no need to traverse children)
             return;
         }
+        "kInterface" => {
+            // When we find an interface node, transform it into a CodeSection (no siblings)
+            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Interface) {
+                code_sections.push(code_section);
+            }
+            return;
+        }
+        "kImplementation" => {
+            // When we find an implementation node, transform it into a CodeSection (no siblings)
+            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Implementation) {
+                code_sections.push(code_section);
+            }
+            return;
+        }
+        "kInitialization" => {
+            // When we find an initialization node, transform it into a CodeSection (no siblings)
+            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Initialization) {
+                code_sections.push(code_section);
+            }
+            return;
+        }
+        "kFinalization" => {
+            // When we find a finalization node, transform it into a CodeSection (no siblings)
+            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Finalization) {
+                code_sections.push(code_section);
+            }
+            return;
+        }
         _ => {
             // For other node types, continue traversing children
             for i in 0..node.child_count() {
@@ -201,6 +233,23 @@ fn transform_keyword_to_code_section(
     Some(CodeSection {
         keyword: node_to_parsed_node(keyword_node, keyword_kind),
         siblings,
+    })
+}
+
+/// Transform function for single keyword nodes (interface, implementation, initialization, finalization)
+/// These nodes don't have meaningful siblings, so they create empty CodeSections with just the keyword
+fn transform_single_keyword_to_code_section(
+    keyword_node: Node,
+    keyword_kind: Kind,
+) -> Option<CodeSection> {
+    // Check if the node has an error
+    if keyword_node.has_error() {
+        return None;
+    }
+
+    Some(CodeSection {
+        keyword: node_to_parsed_node(keyword_node, keyword_kind),
+        siblings: Vec::new(), // No siblings for these single-word sections
     })
 }
 
@@ -349,17 +398,22 @@ end."#;
 
         let result = parse(source).expect("Failed to parse");
 
-        // Should have one code section (unit)
-        assert_eq!(result.code_sections.len(), 1);
+        // Should have three code sections (unit, interface, implementation)
+        assert_eq!(result.code_sections.len(), 3);
 
-        let code_section = &result.code_sections[0];
+        // Find the unit section
+        let unit_section = result
+            .code_sections
+            .iter()
+            .find(|cs| cs.keyword.kind == Kind::Unit)
+            .expect("Should have unit section");
 
         // Check keyword node is unit type
-        assert_eq!(code_section.keyword.kind, Kind::Unit);
+        assert_eq!(unit_section.keyword.kind, Kind::Unit);
 
         // Check siblings - should include module name and semicolon
-        let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);
-        let has_semicolon = code_section
+        let has_module = unit_section.siblings.iter().any(|s| s.kind == Kind::Module);
+        let has_semicolon = unit_section
             .siblings
             .iter()
             .any(|s| s.kind == Kind::Semicolon);
@@ -368,6 +422,81 @@ end."#;
         assert!(has_semicolon, "Should have semicolon in siblings");
 
         // Verify positions are reasonable
-        assert_eq!(code_section.keyword.start_byte, 0);
+        assert_eq!(unit_section.keyword.start_byte, 0);
+    }
+
+    #[test]
+    fn test_parse_interface_section() {
+        let source = r#"unit MyUnit;
+interface
+implementation
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Should have three code sections (unit, interface, implementation)
+        assert_eq!(result.code_sections.len(), 3);
+
+        // Find the interface section
+        let interface_section = result
+            .code_sections
+            .iter()
+            .find(|cs| cs.keyword.kind == Kind::Interface)
+            .expect("Should have interface section");
+
+        // Interface sections should have no siblings
+        assert_eq!(interface_section.siblings.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_implementation_section() {
+        let source = r#"unit MyUnit;
+interface
+implementation
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Find the implementation section
+        let impl_section = result
+            .code_sections
+            .iter()
+            .find(|cs| cs.keyword.kind == Kind::Implementation)
+            .expect("Should have implementation section");
+
+        // Implementation sections should have no siblings
+        assert_eq!(impl_section.siblings.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_initialization_finalization_sections() {
+        let source = r#"unit MyUnit;
+interface
+implementation
+initialization
+finalization
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Find the initialization section
+        let init_section = result
+            .code_sections
+            .iter()
+            .find(|cs| cs.keyword.kind == Kind::Initialization);
+
+        // Find the finalization section
+        let final_section = result
+            .code_sections
+            .iter()
+            .find(|cs| cs.keyword.kind == Kind::Finalization);
+
+        if let Some(init) = init_section {
+            assert_eq!(init.siblings.len(), 0);
+        }
+
+        if let Some(final_sec) = final_section {
+            assert_eq!(final_sec.siblings.len(), 0);
+        }
     }
 }

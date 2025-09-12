@@ -1,7 +1,7 @@
 uniT up1 ;
 
-interface
+inTerface
 
-implementation
+    implementatION
 
 end.
