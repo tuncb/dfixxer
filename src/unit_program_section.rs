@@ -1,22 +1,8 @@
 use crate::options::Options;
 use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
+use crate::transformer_utility::{adjust_replacement_for_line_position, create_text_replacement_if_different};
 
-/// Find the start of the line containing the given byte position
-fn find_line_start(source: &str, position: usize) -> usize {
-    if position == 0 {
-        return 0;
-    }
-
-    // Search backwards from position to find the start of the line
-    let bytes = source.as_bytes();
-    for i in (0..position).rev() {
-        if bytes[i] == b'\n' {
-            return i + 1; // Return position after the newline
-        }
-    }
-    0 // Beginning of file
-}
 
 /// Transform a parser::CodeSection to TextReplacement (only for unit and program sections)
 /// Expects exactly two siblings: module name followed by semicolon
@@ -59,41 +45,23 @@ pub fn transform_unit_program_section(
         _ => return None, // This shouldn't happen due to the check at the top
     };
 
-    let mut replacement_text = format!("{} {};", keyword_text, module_name);
+    let replacement_text = format!("{} {};", keyword_text, module_name);
 
-    // Determine the actual start position for replacement
-    let mut replacement_start = code_section.keyword.start_byte;
+    // Determine the actual start position for replacement and adjust text if needed
+    let (replacement_start, replacement_text) = adjust_replacement_for_line_position(
+        source,
+        code_section.keyword.start_byte,
+        replacement_text,
+        options,
+    );
 
-    // Find the beginning of the line containing the unit/program section
-    let line_start = find_line_start(source, code_section.keyword.start_byte);
-
-    // Check what's between line start and unit/program section start
-    let prefix = &source[line_start..code_section.keyword.start_byte];
-
-    if prefix
-        .chars()
-        .all(|c| c.is_whitespace() && c != '\n' && c != '\r')
-    {
-        // Only whitespace characters before unit/program - remove them by extending replacement start
-        replacement_start = line_start;
-    } else if !prefix.is_empty() {
-        // Non-whitespace characters before unit/program - add a newline before the unit/program section
-        replacement_text = format!("{}{}", options.line_ending.to_string(), replacement_text);
-    }
-    // If prefix is empty, unit/program is already at start of line, no adjustment needed
-
-    // Create the text replacement
-    // If replacement_text is the same as the original unit/program section and starts at the same position, return None
-    let original_text = &source[replacement_start..semicolon_end_byte];
-    if replacement_text == original_text {
-        return None;
-    }
-
-    Some(TextReplacement {
-        start: replacement_start,
-        end: semicolon_end_byte,
-        text: replacement_text,
-    })
+    // Create the text replacement if different from original
+    create_text_replacement_if_different(
+        source,
+        replacement_start,
+        semicolon_end_byte,
+        replacement_text,
+    )
 }
 
 #[cfg(test)]
@@ -206,23 +174,6 @@ mod tests {
         assert!(result.is_none()); // Should skip because it's not unit/program
     }
 
-    #[test]
-    fn test_find_line_start() {
-        let source = "line1\nline2\nline3";
-        assert_eq!(find_line_start(source, 0), 0); // Beginning of file
-        assert_eq!(find_line_start(source, 3), 0); // Middle of first line
-        assert_eq!(find_line_start(source, 6), 6); // Beginning of second line
-        assert_eq!(find_line_start(source, 9), 6); // Middle of second line
-        assert_eq!(find_line_start(source, 12), 12); // Beginning of third line
-    }
-
-    #[test]
-    fn test_find_line_start_single_line() {
-        let source = "single line";
-        assert_eq!(find_line_start(source, 0), 0);
-        assert_eq!(find_line_start(source, 5), 0);
-        assert_eq!(find_line_start(source, 10), 0);
-    }
 
     #[test]
     fn test_skip_section_with_wrong_sibling_count() {

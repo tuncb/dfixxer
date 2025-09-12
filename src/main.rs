@@ -5,6 +5,7 @@ use arguments::{Command, parse_args};
 mod options;
 use options::Options;
 mod replacements;
+mod transformer_utility;
 mod unit_program_section;
 mod uses_section;
 use replacements::{TextReplacement, apply_replacements, print_replacements};

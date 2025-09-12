@@ -1,6 +1,7 @@
 use crate::options::Options;
 use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
+use crate::transformer_utility::{adjust_replacement_for_line_position, create_text_replacement_if_different};
 use log::warn;
 
 // Formats the replacement text for a uses section given the modules and options.
@@ -85,21 +86,6 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     prioritized.into_iter().chain(rest.into_iter()).collect()
 }
 
-/// Find the start of the line containing the given byte position
-fn find_line_start(source: &str, position: usize) -> usize {
-    if position == 0 {
-        return 0;
-    }
-
-    // Search backwards from position to find the start of the line
-    let bytes = source.as_bytes();
-    for i in (0..position).rev() {
-        if bytes[i] == b'\n' {
-            return i + 1; // Return position after the newline
-        }
-    }
-    0 // Beginning of file
-}
 
 /// Transform a parser::CodeSection to TextReplacement (only for uses sections)
 /// Skips code sections that are not uses sections or contain comments or preprocessor nodes
@@ -157,40 +143,23 @@ pub fn transform_uses_section(
     let sorted_modules = sort_modules(&modules, options);
 
     // Format the replacement text
-    let mut replacement_text = format_uses_replacement(&sorted_modules, options);
+    let replacement_text = format_uses_replacement(&sorted_modules, options);
 
-    // Determine the actual start position for replacement
-    let mut replacement_start = code_section.keyword.start_byte;
+    // Determine the actual start position for replacement and adjust text if needed
+    let (replacement_start, replacement_text) = adjust_replacement_for_line_position(
+        source,
+        code_section.keyword.start_byte,
+        replacement_text,
+        options,
+    );
 
-    // Find the beginning of the line containing the uses section
-    let line_start = find_line_start(source, code_section.keyword.start_byte);
-
-    // Check what's between line start and uses section start
-    let prefix = &source[line_start..code_section.keyword.start_byte];
-
-    if prefix
-        .chars()
-        .all(|c| c.is_whitespace() && c != '\n' && c != '\r')
-    {
-        // Only whitespace characters before uses - remove them by extending replacement start
-        replacement_start = line_start;
-    } else if !prefix.is_empty() {
-        // Non-whitespace characters before uses - add a newline before the uses section
-        replacement_text = format!("{}{}", options.line_ending.to_string(), replacement_text);
-    }
-    // If prefix is empty, uses is already at start of line, no adjustment needed
-
-    // Create the text replacement
-    // If replacement_text is the same as the original uses section and starts at the same position, return None
-    let original_text = &source[replacement_start..semicolon_end_byte];
-    if replacement_text == original_text {
-        return None;
-    }
-    Some(TextReplacement {
-        start: replacement_start,
-        end: semicolon_end_byte,
-        text: replacement_text,
-    })
+    // Create the text replacement if different from original
+    create_text_replacement_if_different(
+        source,
+        replacement_start,
+        semicolon_end_byte,
+        replacement_text,
+    )
 }
 
 #[cfg(test)]
@@ -329,21 +298,4 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_find_line_start() {
-        let source = "line1\nline2\nline3";
-        assert_eq!(find_line_start(source, 0), 0); // Beginning of file
-        assert_eq!(find_line_start(source, 3), 0); // Middle of first line
-        assert_eq!(find_line_start(source, 6), 6); // Beginning of second line
-        assert_eq!(find_line_start(source, 9), 6); // Middle of second line
-        assert_eq!(find_line_start(source, 12), 12); // Beginning of third line
-    }
-
-    #[test]
-    fn test_find_line_start_single_line() {
-        let source = "single line";
-        assert_eq!(find_line_start(source, 0), 0);
-        assert_eq!(find_line_start(source, 5), 0);
-        assert_eq!(find_line_start(source, 10), 0);
-    }
 }
