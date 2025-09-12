@@ -15,7 +15,7 @@ pub enum Kind {
 }
 
 /// Struct to store parsed text block information independent of tree-sitter types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ParsedNode {
     /// Kind of the parsed node
     pub kind: Kind,
@@ -31,6 +31,13 @@ pub struct ParsedNode {
     pub end_row: usize,
     /// End column (0-based)
     pub end_column: usize,
+}
+
+impl std::fmt::Debug for ParsedNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ParsedNode {{ kind: {:?}, start_byte: {}, end_byte: {}, start_row: {}, start_column: {}, end_row: {}, end_column: {} }}", 
+               self.kind, self.start_byte, self.end_byte, self.start_row, self.start_column, self.end_row, self.end_column)
+    }
 }
 
 /// Struct representing a code section (uses or program) in the parsed text.
