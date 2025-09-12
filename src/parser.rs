@@ -6,6 +6,7 @@ use tree_sitter_pascal::LANGUAGE;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
     Uses,
+    Program,
     Semicolon,
     Module,
     Comment,
@@ -39,10 +40,19 @@ pub struct UsesSection {
     pub semicolon: ParsedNode,
 }
 
+/// Struct representing a program statement in the parsed text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgramStatement {
+    pub program: ParsedNode,
+    pub siblings: Vec<ParsedNode>,
+    pub semicolon: ParsedNode,
+}
+
 /// Struct representing the result of parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseResult {
     pub uses_sections: Vec<UsesSection>,
+    pub program_statements: Vec<ProgramStatement>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -69,7 +79,7 @@ fn node_to_parsed_node(node: Node, kind: Kind) -> ParsedNode {
 }
 
 /// Traverse the AST and parse nodes of interest
-fn traverse_and_parse<'a>(node: Node<'a>, uses_sections: &mut Vec<UsesSection>) {
+fn traverse_and_parse<'a>(node: Node<'a>, uses_sections: &mut Vec<UsesSection>, program_statements: &mut Vec<ProgramStatement>) {
     match node.kind() {
         "kUses" => {
             // When we find a uses node, try to transform it into a UsesSection
@@ -79,11 +89,19 @@ fn traverse_and_parse<'a>(node: Node<'a>, uses_sections: &mut Vec<UsesSection>) 
             // Continue parsing after this uses section (no need to traverse children)
             return;
         }
+        "kProgram" => {
+            // When we find a program node, try to transform it into a ProgramStatement
+            if let Some(program_statement) = transform_kprogram_to_program_statement(node) {
+                program_statements.push(program_statement);
+            }
+            // Continue parsing after this program statement (no need to traverse children)
+            return;
+        }
         _ => {
             // For other node types, continue traversing children
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(i) {
-                    traverse_and_parse(child, uses_sections);
+                    traverse_and_parse(child, uses_sections, program_statements);
                 }
             }
         }
@@ -157,15 +175,77 @@ fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
     }
 }
 
+/// Transform a kProgram node into a ProgramStatement, skipping if there are errors
+fn transform_kprogram_to_program_statement(kprogram_node: Node) -> Option<ProgramStatement> {
+    // Check if the starting node has an error
+    if kprogram_node.has_error() {
+        return None;
+    }
+
+    // Get the parent node (should be declProgram)
+    let parent = kprogram_node.parent()?;
+
+    // Check parent for errors
+    if parent.has_error() {
+        return None;
+    }
+
+    let mut siblings = Vec::new();
+    let mut semicolon_node = None;
+
+    // Examine all children of the parent (siblings of kprogram_node)
+    for i in 0..parent.child_count() {
+        if let Some(child) = parent.child(i) {
+            // Check each sibling for errors
+            if child.has_error() {
+                return None;
+            }
+
+            // Skip the kProgram node itself
+            if child == kprogram_node {
+                continue;
+            }
+
+            // Look for the section terminator (semicolon)
+            if child.kind() == ";" {
+                semicolon_node = Some(child);
+            } else {
+                // Classify siblings - only include relevant ones for program statement
+                let kind = match child.kind() {
+                    "moduleName" | "identifier" => Kind::Module,
+                    "comment" => Kind::Comment,
+                    "pp" => Kind::Preprocessor,
+                    // Skip other nodes like block, kEndDot, etc. - they're not part of program statement
+                    _ => continue,
+                };
+                siblings.push(node_to_parsed_node(child, kind));
+            }
+        }
+    }
+
+    // Return parsed statement if we found a terminator
+    if let Some(semicolon) = semicolon_node {
+        Some(ProgramStatement {
+            program: node_to_parsed_node(kprogram_node, Kind::Program),
+            siblings,
+            semicolon: node_to_parsed_node(semicolon, Kind::Semicolon),
+        })
+    } else {
+        // No terminator found - treat as error
+        None
+    }
+}
+
 /// Parse source code string and return ParseResult
 pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     let tree = parse_to_tree(source)?;
     let mut uses_sections = Vec::new();
+    let mut program_statements = Vec::new();
 
-    // Traverse the AST and collect all uses sections
-    traverse_and_parse(tree.root_node(), &mut uses_sections);
+    // Traverse the AST and collect all uses sections and program statements
+    traverse_and_parse(tree.root_node(), &mut uses_sections, &mut program_statements);
 
-    Ok(ParseResult { uses_sections })
+    Ok(ParseResult { uses_sections, program_statements })
 }
 
 /// Parse the source, create the tree-sitter tree, and print each node's kind and text
@@ -190,4 +270,38 @@ pub fn parse_raw(source: &str) -> Result<(), DFixxerError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_program_statement() {
+        let source = r#"program myProgram;
+begin
+end."#;
+        
+        let result = parse(source).expect("Failed to parse");
+        
+        // Should have one program statement and no uses sections
+        assert_eq!(result.program_statements.len(), 1);
+        assert_eq!(result.uses_sections.len(), 0);
+        
+        let program_stmt = &result.program_statements[0];
+        
+        // Check program node
+        assert_eq!(program_stmt.program.kind, Kind::Program);
+        
+        // Check siblings - should have one module name
+        assert_eq!(program_stmt.siblings.len(), 1);
+        assert_eq!(program_stmt.siblings[0].kind, Kind::Module);
+        
+        // Check semicolon
+        assert_eq!(program_stmt.semicolon.kind, Kind::Semicolon);
+        
+        // Verify positions are reasonable
+        assert_eq!(program_stmt.program.start_byte, 0);
+        assert!(program_stmt.semicolon.end_byte > program_stmt.program.start_byte);
+    }
 }
