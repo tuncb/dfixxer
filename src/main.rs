@@ -10,7 +10,7 @@ use replacements::{TextReplacement, apply_replacements, print_replacements};
 mod parser;
 use parser::parse;
 
-use crate::uses_section::transform_parser_uses_section_to_replacement;
+use crate::uses_section::transform_parser_code_section_to_replacement;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -87,10 +87,10 @@ fn process_file(
     // Time transformation
     let replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
         parse_result
-            .uses_sections
+            .code_sections
             .iter()
-            .filter_map(|uses_section| {
-                transform_parser_uses_section_to_replacement(uses_section, &options, &source)
+            .filter_map(|code_section| {
+                transform_parser_code_section_to_replacement(code_section, &options, &source)
             })
             .collect()
     });

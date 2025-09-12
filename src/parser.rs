@@ -32,27 +32,18 @@ pub struct ParsedNode {
     pub end_column: usize,
 }
 
-/// Struct representing a uses section in the parsed text.
+/// Struct representing a code section (uses or program) in the parsed text.
+/// The section type can be determined from the keyword's Kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UsesSection {
-    pub uses: ParsedNode,
+pub struct CodeSection {
+    pub keyword: ParsedNode,
     pub siblings: Vec<ParsedNode>,
-    pub semicolon: ParsedNode,
-}
-
-/// Struct representing a program statement in the parsed text.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProgramStatement {
-    pub program: ParsedNode,
-    pub siblings: Vec<ParsedNode>,
-    pub semicolon: ParsedNode,
 }
 
 /// Struct representing the result of parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseResult {
-    pub uses_sections: Vec<UsesSection>,
-    pub program_statements: Vec<ProgramStatement>,
+    pub code_sections: Vec<CodeSection>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -79,20 +70,20 @@ fn node_to_parsed_node(node: Node, kind: Kind) -> ParsedNode {
 }
 
 /// Traverse the AST and parse nodes of interest
-fn traverse_and_parse<'a>(node: Node<'a>, uses_sections: &mut Vec<UsesSection>, program_statements: &mut Vec<ProgramStatement>) {
+fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) {
     match node.kind() {
         "kUses" => {
-            // When we find a uses node, try to transform it into a UsesSection
-            if let Some(uses_section) = transform_kuses_to_uses_section(node) {
-                uses_sections.push(uses_section);
+            // When we find a uses node, try to transform it into a CodeSection
+            if let Some(code_section) = transform_kuses_to_code_section(node) {
+                code_sections.push(code_section);
             }
             // Continue parsing after this uses section (no need to traverse children)
             return;
         }
         "kProgram" => {
-            // When we find a program node, try to transform it into a ProgramStatement
-            if let Some(program_statement) = transform_kprogram_to_program_statement(node) {
-                program_statements.push(program_statement);
+            // When we find a program node, try to transform it into a CodeSection
+            if let Some(code_section) = transform_kprogram_to_code_section(node) {
+                code_sections.push(code_section);
             }
             // Continue parsing after this program statement (no need to traverse children)
             return;
@@ -101,15 +92,16 @@ fn traverse_and_parse<'a>(node: Node<'a>, uses_sections: &mut Vec<UsesSection>, 
             // For other node types, continue traversing children
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(i) {
-                    traverse_and_parse(child, uses_sections, program_statements);
+                    traverse_and_parse(child, code_sections);
                 }
             }
         }
     }
 }
 
-/// Transform a kUses node into a UsesSection, skipping if there are errors
-fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
+
+/// Transform a kUses node into a CodeSection, skipping if there are errors
+fn transform_kuses_to_code_section(kuses_node: Node) -> Option<CodeSection> {
     // Check if the starting node has an error
     if kuses_node.has_error() {
         return None;
@@ -124,7 +116,6 @@ fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
     }
 
     let mut siblings = Vec::new();
-    let mut semicolon_node = None;
 
     // Examine all children of the parent (siblings of kuses_node)
     for i in 0..parent.child_count() {
@@ -139,11 +130,11 @@ fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
                 continue;
             }
 
-            // Look for the section terminator (could be semicolon or kEnd)
+            // Include semicolon as a sibling (part of the section)
             if child.kind() == ";" {
-                semicolon_node = Some(child);
+                siblings.push(node_to_parsed_node(child, Kind::Semicolon));
             } else if child.kind() == "kEnd" {
-                semicolon_node = Some(child);
+                siblings.push(node_to_parsed_node(child, Kind::Semicolon));
             } else {
                 // Skip comma separators between module names
                 if child.kind() == "," {
@@ -162,21 +153,14 @@ fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
         }
     }
 
-    // Return parsed section if we found a terminator
-    if let Some(semicolon) = semicolon_node {
-        Some(UsesSection {
-            uses: node_to_parsed_node(kuses_node, Kind::Uses),
-            siblings,
-            semicolon: node_to_parsed_node(semicolon, Kind::Semicolon),
-        })
-    } else {
-        // No terminator found - treat as error
-        None
-    }
+    Some(CodeSection {
+        keyword: node_to_parsed_node(kuses_node, Kind::Uses),
+        siblings,
+    })
 }
 
-/// Transform a kProgram node into a ProgramStatement, skipping if there are errors
-fn transform_kprogram_to_program_statement(kprogram_node: Node) -> Option<ProgramStatement> {
+/// Transform a kProgram node into a CodeSection, skipping if there are errors
+fn transform_kprogram_to_code_section(kprogram_node: Node) -> Option<CodeSection> {
     // Check if the starting node has an error
     if kprogram_node.has_error() {
         return None;
@@ -191,7 +175,6 @@ fn transform_kprogram_to_program_statement(kprogram_node: Node) -> Option<Progra
     }
 
     let mut siblings = Vec::new();
-    let mut semicolon_node = None;
 
     // Examine all children of the parent (siblings of kprogram_node)
     for i in 0..parent.child_count() {
@@ -206,9 +189,9 @@ fn transform_kprogram_to_program_statement(kprogram_node: Node) -> Option<Progra
                 continue;
             }
 
-            // Look for the section terminator (semicolon)
+            // Include semicolon as a sibling (part of the section)
             if child.kind() == ";" {
-                semicolon_node = Some(child);
+                siblings.push(node_to_parsed_node(child, Kind::Semicolon));
             } else {
                 // Classify siblings - only include relevant ones for program statement
                 let kind = match child.kind() {
@@ -223,29 +206,21 @@ fn transform_kprogram_to_program_statement(kprogram_node: Node) -> Option<Progra
         }
     }
 
-    // Return parsed statement if we found a terminator
-    if let Some(semicolon) = semicolon_node {
-        Some(ProgramStatement {
-            program: node_to_parsed_node(kprogram_node, Kind::Program),
-            siblings,
-            semicolon: node_to_parsed_node(semicolon, Kind::Semicolon),
-        })
-    } else {
-        // No terminator found - treat as error
-        None
-    }
+    Some(CodeSection {
+        keyword: node_to_parsed_node(kprogram_node, Kind::Program),
+        siblings,
+    })
 }
 
 /// Parse source code string and return ParseResult
 pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     let tree = parse_to_tree(source)?;
-    let mut uses_sections = Vec::new();
-    let mut program_statements = Vec::new();
+    let mut code_sections = Vec::new();
 
-    // Traverse the AST and collect all uses sections and program statements
-    traverse_and_parse(tree.root_node(), &mut uses_sections, &mut program_statements);
+    // Traverse the AST and collect all code sections
+    traverse_and_parse(tree.root_node(), &mut code_sections);
 
-    Ok(ParseResult { uses_sections, program_statements })
+    Ok(ParseResult { code_sections })
 }
 
 /// Parse the source, create the tree-sitter tree, and print each node's kind and text
@@ -277,31 +252,83 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_program_statement() {
+    fn test_parse_program_statement_legacy() {
         let source = r#"program myProgram;
 begin
 end."#;
         
         let result = parse(source).expect("Failed to parse");
         
-        // Should have one program statement and no uses sections
-        assert_eq!(result.program_statements.len(), 1);
-        assert_eq!(result.uses_sections.len(), 0);
+        // Should have one code section
+        assert_eq!(result.code_sections.len(), 1);
         
-        let program_stmt = &result.program_statements[0];
+        let code_section = &result.code_sections[0];
         
-        // Check program node
-        assert_eq!(program_stmt.program.kind, Kind::Program);
+        // Check keyword node
+        assert_eq!(code_section.keyword.kind, Kind::Program);
         
-        // Check siblings - should have one module name
-        assert_eq!(program_stmt.siblings.len(), 1);
-        assert_eq!(program_stmt.siblings[0].kind, Kind::Module);
+        // Check siblings - should include module name and semicolon
+        let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);
+        let has_semicolon = code_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
         
-        // Check semicolon
-        assert_eq!(program_stmt.semicolon.kind, Kind::Semicolon);
+        assert!(has_module, "Should have module name in siblings");
+        assert!(has_semicolon, "Should have semicolon in siblings");
         
         // Verify positions are reasonable
-        assert_eq!(program_stmt.program.start_byte, 0);
-        assert!(program_stmt.semicolon.end_byte > program_stmt.program.start_byte);
+        assert_eq!(code_section.keyword.start_byte, 0);
+    }
+
+    #[test]
+    fn test_parse_code_section_program() {
+        let source = r#"program myProgram;
+begin
+end."#;
+        
+        let result = parse(source).expect("Failed to parse");
+        
+        // Should have one code section
+        assert_eq!(result.code_sections.len(), 1);
+        
+        let code_section = &result.code_sections[0];
+        
+        // Check keyword node is program type
+        assert_eq!(code_section.keyword.kind, Kind::Program);
+        
+        // Check siblings - should include module name and semicolon
+        assert!(code_section.siblings.len() >= 1);
+        
+        // Find module and semicolon in siblings
+        let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);
+        let has_semicolon = code_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
+        
+        assert!(has_module, "Should have module name in siblings");
+        assert!(has_semicolon, "Should have semicolon in siblings");
+    }
+
+    #[test]
+    fn test_parse_code_section_uses() {
+        let source = r#"program myProgram;
+uses
+  UnitA,
+  UnitB;
+begin
+end."#;
+        
+        let result = parse(source).expect("Failed to parse");
+        
+        // Should have two code sections (program and uses)
+        assert_eq!(result.code_sections.len(), 2);
+        
+        // Find the uses section
+        let uses_section = result.code_sections.iter()
+            .find(|cs| cs.keyword.kind == Kind::Uses)
+            .expect("Should have uses section");
+        
+        // Check siblings - should include modules and semicolon
+        let module_count = uses_section.siblings.iter().filter(|s| s.kind == Kind::Module).count();
+        let has_semicolon = uses_section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
+        
+        assert_eq!(module_count, 2, "Should have two modules in siblings");
+        assert!(has_semicolon, "Should have semicolon in siblings");
     }
 }

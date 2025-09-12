@@ -1,5 +1,5 @@
 use crate::options::Options;
-use crate::parser::{Kind, UsesSection as ParserUsesSection};
+use crate::parser::{Kind, CodeSection};
 use crate::replacements::TextReplacement;
 use log::warn;
 
@@ -85,83 +85,6 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     prioritized.into_iter().chain(rest.into_iter()).collect()
 }
 
-/// Transform a parser::UsesSection to TextReplacement
-/// Skips uses sections that contain comments or preprocessor nodes
-pub fn transform_parser_uses_section_to_replacement(
-    uses_section: &ParserUsesSection,
-    options: &Options,
-    source: &str,
-) -> Option<TextReplacement> {
-    // Check if any sibling contains comments or preprocessor nodes
-    for sibling in &uses_section.siblings {
-        match sibling.kind {
-            Kind::Comment | Kind::Preprocessor => {
-                // Skip this uses section if it contains comments or preprocessor directives
-                warn!(
-                    "Skipping uses section at byte range {}-{} due to presence of {} node",
-                    uses_section.uses.start_byte,
-                    uses_section.semicolon.end_byte,
-                    match sibling.kind {
-                        Kind::Comment => "comment",
-                        Kind::Preprocessor => "preprocessor",
-                        _ => "unknown",
-                    }
-                );
-                return None;
-            }
-            _ => continue,
-        }
-    }
-
-    // Extract module names from siblings
-    let mut modules = Vec::new();
-    for sibling in &uses_section.siblings {
-        if matches!(sibling.kind, Kind::Module) {
-            // Extract the module text from the source using byte positions
-            let module_text = &source[sibling.start_byte..sibling.end_byte];
-            modules.push(module_text.to_string());
-        }
-    }
-
-    // Sort modules according to options
-    let sorted_modules = sort_modules(&modules, options);
-
-    // Format the replacement text
-    let mut replacement_text = format_uses_replacement(&sorted_modules, options);
-
-    // Determine the actual start position for replacement
-    let mut replacement_start = uses_section.uses.start_byte;
-
-    // Find the beginning of the line containing the uses section
-    let line_start = find_line_start(source, uses_section.uses.start_byte);
-
-    // Check what's between line start and uses section start
-    let prefix = &source[line_start..uses_section.uses.start_byte];
-
-    if prefix
-        .chars()
-        .all(|c| c.is_whitespace() && c != '\n' && c != '\r')
-    {
-        // Only whitespace characters before uses - remove them by extending replacement start
-        replacement_start = line_start;
-    } else if !prefix.is_empty() {
-        // Non-whitespace characters before uses - add a newline before the uses section
-        replacement_text = format!("{}{}", options.line_ending.to_string(), replacement_text);
-    }
-    // If prefix is empty, uses is already at start of line, no adjustment needed
-
-    // Create the text replacement
-    // If replacement_text is the same as the original uses section and starts at the same position, return None
-    let original_text = &source[replacement_start..uses_section.semicolon.end_byte];
-    if replacement_text == original_text {
-        return None;
-    }
-    Some(TextReplacement {
-        start: replacement_start,
-        end: uses_section.semicolon.end_byte,
-        text: replacement_text,
-    })
-}
 
 /// Find the start of the line containing the given byte position
 fn find_line_start(source: &str, position: usize) -> usize {
@@ -177,6 +100,98 @@ fn find_line_start(source: &str, position: usize) -> usize {
         }
     }
     0 // Beginning of file
+}
+
+/// Transform a parser::CodeSection to TextReplacement (only for uses sections)
+/// Skips code sections that are not uses sections or contain comments or preprocessor nodes
+pub fn transform_parser_code_section_to_replacement(
+    code_section: &CodeSection,
+    options: &Options,
+    source: &str,
+) -> Option<TextReplacement> {
+    // Only process uses sections
+    if code_section.keyword.kind != Kind::Uses {
+        return None;
+    }
+
+    // Check if any sibling contains comments or preprocessor nodes
+    for sibling in &code_section.siblings {
+        match sibling.kind {
+            Kind::Comment | Kind::Preprocessor => {
+                // Skip this uses section if it contains comments or preprocessor directives
+                warn!(
+                    "Skipping uses section at byte range {}-{} due to presence of {} node",
+                    code_section.keyword.start_byte,
+                    sibling.end_byte,
+                    match sibling.kind {
+                        Kind::Comment => "comment",
+                        Kind::Preprocessor => "preprocessor",
+                        _ => "unknown",
+                    }
+                );
+                return None;
+            }
+            _ => continue,
+        }
+    }
+
+    // Extract module names from siblings (excluding semicolon)
+    let mut modules = Vec::new();
+    let mut semicolon_end_byte = code_section.keyword.end_byte; // default to keyword end if no semicolon found
+    
+    for sibling in &code_section.siblings {
+        match sibling.kind {
+            Kind::Module => {
+                // Extract the module text from the source using byte positions
+                let module_text = &source[sibling.start_byte..sibling.end_byte];
+                modules.push(module_text.to_string());
+            }
+            Kind::Semicolon => {
+                // Remember the semicolon's end position for replacement range
+                semicolon_end_byte = sibling.end_byte;
+            }
+            _ => continue,
+        }
+    }
+
+    // Sort modules according to options
+    let sorted_modules = sort_modules(&modules, options);
+
+    // Format the replacement text
+    let mut replacement_text = format_uses_replacement(&sorted_modules, options);
+
+    // Determine the actual start position for replacement
+    let mut replacement_start = code_section.keyword.start_byte;
+
+    // Find the beginning of the line containing the uses section
+    let line_start = find_line_start(source, code_section.keyword.start_byte);
+
+    // Check what's between line start and uses section start
+    let prefix = &source[line_start..code_section.keyword.start_byte];
+
+    if prefix
+        .chars()
+        .all(|c| c.is_whitespace() && c != '\n' && c != '\r')
+    {
+        // Only whitespace characters before uses - remove them by extending replacement start
+        replacement_start = line_start;
+    } else if !prefix.is_empty() {
+        // Non-whitespace characters before uses - add a newline before the uses section
+        replacement_text = format!("{}{}", options.line_ending.to_string(), replacement_text);
+    }
+    // If prefix is empty, uses is already at start of line, no adjustment needed
+
+    // Create the text replacement
+    // If replacement_text is the same as the original uses section and starts at the same position, return None
+    let original_text = &source[replacement_start..semicolon_end_byte];
+    if replacement_text == original_text {
+        return None;
+    }
+    Some(TextReplacement {
+        start: replacement_start,
+        end: semicolon_end_byte,
+        text: replacement_text,
+    })
 }
 
 #[cfg(test)]
