@@ -5,12 +5,14 @@ use arguments::{Command, parse_args};
 mod options;
 use options::Options;
 mod replacements;
+mod unit_program_section;
 mod uses_section;
 use replacements::{TextReplacement, apply_replacements, print_replacements};
 mod parser;
 use parser::parse;
 
-use crate::uses_section::transform_parser_code_section_to_replacement;
+use crate::unit_program_section::transform_unit_program_section;
+use crate::uses_section::transform_uses_section;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -90,7 +92,17 @@ fn process_file(
             .code_sections
             .iter()
             .filter_map(|code_section| {
-                transform_parser_code_section_to_replacement(code_section, &options, &source)
+                match code_section.keyword.kind {
+                    parser::Kind::Uses => {
+                        transform_uses_section(code_section, &options, &source)
+                    }
+                    parser::Kind::Unit | parser::Kind::Program => {
+                        transform_unit_program_section(code_section, &options, &source)
+                    }
+                    _ => {
+                        None
+                    }
+                }
             })
             .collect()
     });

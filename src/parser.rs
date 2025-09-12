@@ -132,6 +132,7 @@ fn transform_keyword_to_code_section(keyword_node: Node, keyword_kind: Kind) -> 
     }
 
     let mut siblings = Vec::new();
+    let mut found_module = false;
 
     // Examine all children of the parent (siblings of keyword_node)
     for i in 0..parent.child_count() {
@@ -149,15 +150,26 @@ fn transform_keyword_to_code_section(keyword_node: Node, keyword_kind: Kind) -> 
             // Handle semicolon and end markers
             if child.kind() == ";" {
                 siblings.push(node_to_parsed_node(child, Kind::Semicolon));
+                // For unit and program sections, stop after the first semicolon that follows a module
+                if (keyword_kind == Kind::Unit || keyword_kind == Kind::Program) && found_module {
+                    break;
+                }
             } else if child.kind() == "kEnd" {
                 siblings.push(node_to_parsed_node(child, Kind::Semicolon));
+                // For unit and program sections, stop after the first end marker that follows a module
+                if (keyword_kind == Kind::Unit || keyword_kind == Kind::Program) && found_module {
+                    break;
+                }
             } else if child.kind() == "," {
                 // Skip comma separators between module names
                 continue;
             } else {
                 // Classify other siblings
                 let kind = match child.kind() {
-                    "moduleName" | "identifier" => Kind::Module,
+                    "moduleName" | "identifier" => {
+                        found_module = true;
+                        Kind::Module
+                    },
                     "comment" => Kind::Comment,
                     "pp" => Kind::Preprocessor,
                     _ => {

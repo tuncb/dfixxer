@@ -1,5 +1,5 @@
 use crate::options::Options;
-use crate::parser::{Kind, CodeSection};
+use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
 use log::warn;
 
@@ -85,7 +85,6 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     prioritized.into_iter().chain(rest.into_iter()).collect()
 }
 
-
 /// Find the start of the line containing the given byte position
 fn find_line_start(source: &str, position: usize) -> usize {
     if position == 0 {
@@ -104,7 +103,7 @@ fn find_line_start(source: &str, position: usize) -> usize {
 
 /// Transform a parser::CodeSection to TextReplacement (only for uses sections)
 /// Skips code sections that are not uses sections or contain comments or preprocessor nodes
-pub fn transform_parser_code_section_to_replacement(
+pub fn transform_uses_section(
     code_section: &CodeSection,
     options: &Options,
     source: &str,
@@ -138,7 +137,7 @@ pub fn transform_parser_code_section_to_replacement(
     // Extract module names from siblings (excluding semicolon)
     let mut modules = Vec::new();
     let mut semicolon_end_byte = code_section.keyword.end_byte; // default to keyword end if no semicolon found
-    
+
     for sibling in &code_section.siblings {
         match sibling.kind {
             Kind::Module => {
