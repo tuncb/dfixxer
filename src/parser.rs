@@ -68,21 +68,26 @@ fn node_to_parsed_node(node: Node, kind: Kind) -> ParsedNode {
     }
 }
 
-/// Find all kUses nodes in the tree, similar to find_kuses_nodes in uses_section.rs
-fn find_kuses_nodes(tree: &Tree) -> Vec<Node<'_>> {
-    fn traverse<'a>(node: Node<'a>, nodes: &mut Vec<Node<'a>>) {
-        if node.kind() == "kUses" {
-            nodes.push(node);
+/// Traverse the AST and parse nodes of interest
+fn traverse_and_parse<'a>(node: Node<'a>, uses_sections: &mut Vec<UsesSection>) {
+    match node.kind() {
+        "kUses" => {
+            // When we find a uses node, try to transform it into a UsesSection
+            if let Some(uses_section) = transform_kuses_to_uses_section(node) {
+                uses_sections.push(uses_section);
+            }
+            // Continue parsing after this uses section (no need to traverse children)
+            return;
         }
-        for i in 0..node.child_count() {
-            if let Some(child) = node.child(i) {
-                traverse(child, nodes);
+        _ => {
+            // For other node types, continue traversing children
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    traverse_and_parse(child, uses_sections);
+                }
             }
         }
     }
-    let mut nodes = Vec::new();
-    traverse(tree.root_node(), &mut nodes);
-    nodes
 }
 
 /// Transform a kUses node into a UsesSection, skipping if there are errors
@@ -155,17 +160,10 @@ fn transform_kuses_to_uses_section(kuses_node: Node) -> Option<UsesSection> {
 /// Parse source code string and return ParseResult
 pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     let tree = parse_to_tree(source)?;
-    let kuses_nodes = find_kuses_nodes(&tree);
-
     let mut uses_sections = Vec::new();
 
-    for kuses_node in kuses_nodes {
-        // Try to transform each kUses node, skip if there are errors
-        if let Some(uses_section) = transform_kuses_to_uses_section(kuses_node) {
-            uses_sections.push(uses_section);
-        }
-        // If transformation fails (returns None), we skip this uses section
-    }
+    // Traverse the AST and collect all uses sections
+    traverse_and_parse(tree.root_node(), &mut uses_sections);
 
     Ok(ParseResult { uses_sections })
 }
