@@ -39,6 +39,7 @@ pub enum Command {
     CheckFile,
     InitConfig,
     Parse,
+    ParseDebug,
 }
 
 pub struct Arguments {
@@ -85,6 +86,11 @@ enum CliCommand {
     /// Parse a file and print its AST
     Parse {
         /// The filename to parse
+        filename: String,
+    },
+    /// Parse a file and print detailed debug information
+    ParseDebug {
+        /// The filename to parse with debug output
         filename: String,
     },
 }
@@ -176,6 +182,12 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
         }),
         CliCommand::Parse { filename } => Ok(Arguments {
             command: Command::Parse,
+            filename,
+            config_path: None,
+            log_level: cli.log_level,
+        }),
+        CliCommand::ParseDebug { filename } => Ok(Arguments {
+            command: Command::ParseDebug,
             filename,
             config_path: None,
             log_level: cli.log_level,

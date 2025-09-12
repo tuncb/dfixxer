@@ -159,6 +159,13 @@ fn run() -> Result<i32, DFixxerError> {
             parser::parse_raw(&source)?;
             Ok(0)
         }
+        Command::ParseDebug => {
+            // Parse the file and print the ParseResult structure
+            let source = std::fs::read_to_string(&arguments.filename)?;
+            let parse_result = parse(&source)?;
+            println!("{:#?}", parse_result);
+            Ok(0)
+        }
     }
 }
 
