@@ -5,17 +5,17 @@ use arguments::{Command, parse_args};
 mod options;
 use options::Options;
 mod replacements;
-mod single_keyword_section;
+mod transform_single_keyword_sections;
+mod transform_unit_program_section;
+mod transform_uses_section;
 mod transformer_utility;
-mod unit_program_section;
-mod uses_section;
 use replacements::{TextReplacement, apply_replacements, print_replacements};
 mod parser;
 use parser::parse;
 
-use crate::single_keyword_section::transform_single_keyword_section;
-use crate::unit_program_section::transform_unit_program_section;
-use crate::uses_section::transform_uses_section;
+use crate::transform_single_keyword_sections::transform_single_keyword_section;
+use crate::transform_unit_program_section::transform_unit_program_section;
+use crate::transform_uses_section::transform_uses_section;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -94,22 +94,18 @@ fn process_file(
         parse_result
             .code_sections
             .iter()
-            .filter_map(|code_section| {
-                match code_section.keyword.kind {
-                    parser::Kind::Uses => {
-                        transform_uses_section(code_section, &options, &source)
-                    }
-                    parser::Kind::Unit | parser::Kind::Program => {
-                        transform_unit_program_section(code_section, &options, &source)
-                    }
-                    parser::Kind::Interface | parser::Kind::Implementation | 
-                    parser::Kind::Initialization | parser::Kind::Finalization => {
-                        transform_single_keyword_section(&source, code_section, &options)
-                    }
-                    _ => {
-                        None
-                    }
+            .filter_map(|code_section| match code_section.keyword.kind {
+                parser::Kind::Uses => transform_uses_section(code_section, &options, &source),
+                parser::Kind::Unit | parser::Kind::Program => {
+                    transform_unit_program_section(code_section, &options, &source)
                 }
+                parser::Kind::Interface
+                | parser::Kind::Implementation
+                | parser::Kind::Initialization
+                | parser::Kind::Finalization => {
+                    transform_single_keyword_section(&source, code_section, &options)
+                }
+                _ => None,
             })
             .collect()
     });
