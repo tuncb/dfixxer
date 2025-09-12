@@ -74,7 +74,7 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
     match node.kind() {
         "kUses" => {
             // When we find a uses node, try to transform it into a CodeSection
-            if let Some(code_section) = transform_kuses_to_code_section(node) {
+            if let Some(code_section) = transform_keyword_to_code_section(node, Kind::Uses) {
                 code_sections.push(code_section);
             }
             // Continue parsing after this uses section (no need to traverse children)
@@ -82,7 +82,7 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
         }
         "kProgram" => {
             // When we find a program node, try to transform it into a CodeSection
-            if let Some(code_section) = transform_kprogram_to_code_section(node) {
+            if let Some(code_section) = transform_keyword_to_code_section(node, Kind::Program) {
                 code_sections.push(code_section);
             }
             // Continue parsing after this program statement (no need to traverse children)
@@ -100,15 +100,15 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
 }
 
 
-/// Transform a kUses node into a CodeSection, skipping if there are errors
-fn transform_kuses_to_code_section(kuses_node: Node) -> Option<CodeSection> {
+/// Generic transform function for both kUses and kProgram nodes into a CodeSection
+fn transform_keyword_to_code_section(keyword_node: Node, keyword_kind: Kind) -> Option<CodeSection> {
     // Check if the starting node has an error
-    if kuses_node.has_error() {
+    if keyword_node.has_error() {
         return None;
     }
 
-    // Get the parent node (should be declUses)
-    let parent = kuses_node.parent()?;
+    // Get the parent node (should be declUses or declProgram)
+    let parent = keyword_node.parent()?;
 
     // Check parent for errors
     if parent.has_error() {
@@ -117,7 +117,7 @@ fn transform_kuses_to_code_section(kuses_node: Node) -> Option<CodeSection> {
 
     let mut siblings = Vec::new();
 
-    // Examine all children of the parent (siblings of kuses_node)
+    // Examine all children of the parent (siblings of keyword_node)
     for i in 0..parent.child_count() {
         if let Some(child) = parent.child(i) {
             // Check each sibling for errors
@@ -125,28 +125,34 @@ fn transform_kuses_to_code_section(kuses_node: Node) -> Option<CodeSection> {
                 return None;
             }
 
-            // Skip the kUses node itself
-            if child == kuses_node {
+            // Skip the keyword node itself
+            if child == keyword_node {
                 continue;
             }
 
-            // Include semicolon as a sibling (part of the section)
+            // Handle semicolon and end markers
             if child.kind() == ";" {
                 siblings.push(node_to_parsed_node(child, Kind::Semicolon));
             } else if child.kind() == "kEnd" {
                 siblings.push(node_to_parsed_node(child, Kind::Semicolon));
-            } else {
+            } else if child.kind() == "," {
                 // Skip comma separators between module names
-                if child.kind() == "," {
-                    continue;
-                }
-
+                continue;
+            } else {
                 // Classify other siblings
                 let kind = match child.kind() {
                     "moduleName" | "identifier" => Kind::Module,
                     "comment" => Kind::Comment,
                     "pp" => Kind::Preprocessor,
-                    _ => Kind::Module, // Default to module for other types
+                    _ => {
+                        // For program statements, skip other nodes like block, kEndDot, etc.
+                        // For uses statements, default to module
+                        match keyword_kind {
+                            Kind::Program => continue, // Skip other nodes for program statements
+                            Kind::Uses => Kind::Module, // Default to module for uses statements
+                            _ => continue,
+                        }
+                    }
                 };
                 siblings.push(node_to_parsed_node(child, kind));
             }
@@ -154,60 +160,7 @@ fn transform_kuses_to_code_section(kuses_node: Node) -> Option<CodeSection> {
     }
 
     Some(CodeSection {
-        keyword: node_to_parsed_node(kuses_node, Kind::Uses),
-        siblings,
-    })
-}
-
-/// Transform a kProgram node into a CodeSection, skipping if there are errors
-fn transform_kprogram_to_code_section(kprogram_node: Node) -> Option<CodeSection> {
-    // Check if the starting node has an error
-    if kprogram_node.has_error() {
-        return None;
-    }
-
-    // Get the parent node (should be declProgram)
-    let parent = kprogram_node.parent()?;
-
-    // Check parent for errors
-    if parent.has_error() {
-        return None;
-    }
-
-    let mut siblings = Vec::new();
-
-    // Examine all children of the parent (siblings of kprogram_node)
-    for i in 0..parent.child_count() {
-        if let Some(child) = parent.child(i) {
-            // Check each sibling for errors
-            if child.has_error() {
-                return None;
-            }
-
-            // Skip the kProgram node itself
-            if child == kprogram_node {
-                continue;
-            }
-
-            // Include semicolon as a sibling (part of the section)
-            if child.kind() == ";" {
-                siblings.push(node_to_parsed_node(child, Kind::Semicolon));
-            } else {
-                // Classify siblings - only include relevant ones for program statement
-                let kind = match child.kind() {
-                    "moduleName" | "identifier" => Kind::Module,
-                    "comment" => Kind::Comment,
-                    "pp" => Kind::Preprocessor,
-                    // Skip other nodes like block, kEndDot, etc. - they're not part of program statement
-                    _ => continue,
-                };
-                siblings.push(node_to_parsed_node(child, kind));
-            }
-        }
-    }
-
-    Some(CodeSection {
-        keyword: node_to_parsed_node(kprogram_node, Kind::Program),
+        keyword: node_to_parsed_node(keyword_node, keyword_kind),
         siblings,
     })
 }
