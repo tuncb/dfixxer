@@ -30,46 +30,41 @@ pub fn apply_text_transformations(
 
 /// Apply all text changes to a text string based on the given options
 fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
-    let mut result = text.to_string();
-
-    if options.space_after_comma {
-        result = add_spaces_after_character(&result, ',');
-    }
-
-    if options.space_after_semi_colon {
-        result = add_spaces_after_character(&result, ';');
-    }
-
-    if options.trim_trailing_whitespace {
-        result = trim_trailing_whitespace(&result);
-    }
-
-    result
-}
-
-/// Add spaces after a specific character in a text string where needed
-fn add_spaces_after_character(text: &str, target_char: char) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
-
+    let mut last_non_whitespace = 0;
+    let mut idx = 0;
     while let Some(ch) = chars.next() {
         result.push(ch);
-
-        // If we found the target character, check what follows
-        if ch == target_char {
-            // Look at the next character without consuming it
+        idx += ch.len_utf8();
+        // Add space after comma if needed
+        if options.space_after_comma && ch == ',' {
             if let Some(&next_ch) = chars.peek() {
-                // Add space if the next character is not already a space, newline, or another target character
-                if !next_ch.is_whitespace() && next_ch != target_char {
+                if !next_ch.is_whitespace() && next_ch != ',' {
                     result.push(' ');
                 }
             }
         }
+        // Add space after semicolon if needed
+        if options.space_after_semi_colon && ch == ';' {
+            if let Some(&next_ch) = chars.peek() {
+                if !next_ch.is_whitespace() && next_ch != ';' {
+                    result.push(' ');
+                }
+            }
+        }
+        // Track last non-whitespace for trimming
+        if !ch.is_whitespace() {
+            last_non_whitespace = result.len();
+        }
     }
-
+    if options.trim_trailing_whitespace {
+        result.truncate(last_non_whitespace);
+    }
     result
 }
 
+// The add_spaces_after_character and trim_trailing_whitespace helpers are now unused and can be removed.
 /// Trim trailing whitespace from each line in the text
 fn trim_trailing_whitespace(text: &str) -> String {
     // Handle empty string
