@@ -8,6 +8,7 @@ mod replacements;
 mod transform_single_keyword_sections;
 mod transform_unit_program_section;
 mod transform_uses_section;
+mod transform_procedure_section;
 mod transformer_utility;
 use replacements::{TextReplacement, apply_replacements, print_replacements};
 mod parser;
@@ -16,6 +17,7 @@ use parser::parse;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
 use crate::transform_unit_program_section::transform_unit_program_section;
 use crate::transform_uses_section::transform_uses_section;
+use crate::transform_procedure_section::transform_procedure_section;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -104,6 +106,9 @@ fn process_file(
                 | parser::Kind::Initialization
                 | parser::Kind::Finalization => {
                     transform_single_keyword_section(&source, code_section, &options)
+                }
+                parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration => {
+                    transform_procedure_section(code_section, &options, &source)
                 }
                 _ => None,
             })

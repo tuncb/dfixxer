@@ -16,6 +16,9 @@ pub enum Kind {
     Module,
     Comment,
     Preprocessor,
+    ProcedureDeclaration,
+    FunctionDeclaration,
+    Identifier,
 }
 
 /// Struct to store parsed text block information independent of tree-sitter types.
@@ -145,6 +148,13 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
             }
             return;
         }
+        "declProc" => {
+            // Check if this is a procedure or function declaration without parentheses
+            if let Some(code_section) = transform_procedure_declaration_to_code_section(node) {
+                code_sections.push(code_section);
+            }
+            return;
+        }
         _ => {
             // For other node types, continue traversing children
             for i in 0..node.child_count() {
@@ -251,6 +261,65 @@ fn transform_single_keyword_to_code_section(
         keyword: node_to_parsed_node(keyword_node, keyword_kind),
         siblings: Vec::new(), // No siblings for these single-word sections
     })
+}
+
+/// Transform function for procedure/function declarations without parentheses
+/// These are `declProc` nodes that contain kProcedure/kFunction -> identifier -> ; (no declArgs)
+fn transform_procedure_declaration_to_code_section(declproc_node: Node) -> Option<CodeSection> {
+    // Check if the node has an error
+    if declproc_node.has_error() {
+        return None;
+    }
+
+    let mut proc_or_func_node = None;
+    let mut identifier_node = None;
+    let mut has_decl_args = false;
+    let mut semicolon_node = None;
+
+    // Examine all children to find the pattern: kProcedure/kFunction -> identifier -> ; (no declArgs)
+    for i in 0..declproc_node.child_count() {
+        if let Some(child) = declproc_node.child(i) {
+            match child.kind() {
+                "kProcedure" | "kFunction" => {
+                    proc_or_func_node = Some(child);
+                }
+                "identifier" => {
+                    identifier_node = Some(child);
+                }
+                "declArgs" => {
+                    has_decl_args = true; // This procedure/function already has parentheses
+                }
+                ";" => {
+                    semicolon_node = Some(child);
+                }
+                _ => {} // Skip other nodes like return types
+            }
+        }
+    }
+
+    // Only process if we have the pattern without declArgs
+    if let (Some(proc_func), Some(identifier), Some(semicolon)) = 
+        (proc_or_func_node, identifier_node, semicolon_node) {
+        if !has_decl_args {
+            // Determine if it's a procedure or function
+            let kind = if proc_func.kind() == "kProcedure" {
+                Kind::ProcedureDeclaration
+            } else {
+                Kind::FunctionDeclaration
+            };
+
+            let mut siblings = Vec::new();
+            siblings.push(node_to_parsed_node(identifier, Kind::Identifier));
+            siblings.push(node_to_parsed_node(semicolon, Kind::Semicolon));
+
+            return Some(CodeSection {
+                keyword: node_to_parsed_node(proc_func, kind),
+                siblings,
+            });
+        }
+    }
+
+    None
 }
 
 /// Parse source code string and return ParseResult
@@ -498,5 +567,96 @@ end."#;
         if let Some(final_sec) = final_section {
             assert_eq!(final_sec.siblings.len(), 0);
         }
+    }
+
+    #[test]
+    fn test_parse_procedure_without_parentheses() {
+        let source = r#"unit TestProcedures;
+interface
+procedure Foo;
+implementation
+procedure Foo;
+begin
+end;
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Find procedure declaration sections
+        let procedure_sections: Vec<_> = result
+            .code_sections
+            .iter()
+            .filter(|cs| cs.keyword.kind == Kind::ProcedureDeclaration)
+            .collect();
+
+        // Should have two procedure declarations (interface and implementation)
+        assert_eq!(procedure_sections.len(), 2);
+
+        for section in &procedure_sections {
+            // Each should have identifier and semicolon in siblings
+            let has_identifier = section.siblings.iter().any(|s| s.kind == Kind::Identifier);
+            let has_semicolon = section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
+            
+            assert!(has_identifier, "Should have identifier in siblings");
+            assert!(has_semicolon, "Should have semicolon in siblings");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_without_parentheses() {
+        let source = r#"unit TestFunctions;
+interface
+function Bar: Integer;
+implementation
+function Bar: Integer;
+begin
+  Result := 42;
+end;
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Find function declaration sections
+        let function_sections: Vec<_> = result
+            .code_sections
+            .iter()
+            .filter(|cs| cs.keyword.kind == Kind::FunctionDeclaration)
+            .collect();
+
+        // Should have two function declarations (interface and implementation)
+        assert_eq!(function_sections.len(), 2);
+
+        for section in &function_sections {
+            // Each should have identifier and semicolon in siblings
+            let has_identifier = section.siblings.iter().any(|s| s.kind == Kind::Identifier);
+            let has_semicolon = section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
+            
+            assert!(has_identifier, "Should have identifier in siblings");
+            assert!(has_semicolon, "Should have semicolon in siblings");
+        }
+    }
+
+    #[test]
+    fn test_parse_procedures_with_parentheses_not_detected() {
+        let source = r#"unit TestProcedures;
+interface
+procedure WithParams(x: Integer);
+function WithParamsAndReturn(x: Integer): String;
+implementation
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Should not detect any procedure/function declaration sections
+        // since they already have parentheses
+        let proc_func_sections: Vec<_> = result
+            .code_sections
+            .iter()
+            .filter(|cs| {
+                cs.keyword.kind == Kind::ProcedureDeclaration || cs.keyword.kind == Kind::FunctionDeclaration
+            })
+            .collect();
+
+        assert_eq!(proc_func_sections.len(), 0, "Should not detect procedures/functions that already have parentheses");
     }
 }
