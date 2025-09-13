@@ -197,8 +197,17 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 - **Purpose**: Map short unit names to fully-qualified names
 - **Format**: Each entry is `"Prefix:ShortName"`
 - **Behavior**: When the tool encounters `ShortName`, it rewrites it to `Prefix.ShortName` before sorting/formatting
-- **Default**: `[]` (empty array)
+- **Default**: Extensive list of 258 built-in mappings for System, Winapi, and other common namespaces
 - **Example**: `["System:Classes", "Vcl:Dialogs", "FireDAC:Comp.Client"]`
+
+#### `transformations` (object)
+- **Purpose**: Controls which transformation features are enabled
+- **Default**: All transformations enabled
+- **Properties**:
+  - `enable_uses_section` (boolean) - Enable uses section formatting (default: `true`)
+  - `enable_unit_program_section` (boolean) - Enable unit/program section processing (default: `true`)
+  - `enable_single_keyword_sections` (boolean) - Enable single keyword section processing (default: `true`)
+  - `enable_procedure_section` (boolean) - Enable procedure section processing (default: `true`)
 
 ### Complete Example Configuration
 
@@ -226,6 +235,13 @@ module_names_to_update = [
     "FireDAC:Comp.Client",
     "FireDAC:Stan.Def"
 ]
+
+# Control which transformations are enabled
+[transformations]
+enable_uses_section = true
+enable_unit_program_section = true
+enable_single_keyword_sections = true
+enable_procedure_section = true
 ```
 
 ### Configuration File Discovery
