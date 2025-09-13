@@ -59,6 +59,7 @@ pub struct Options {
     pub module_names_to_update: Vec<String>,
     pub line_ending: LineEnding,
     pub transformations: TransformationOptions,
+    pub space_after_comma: bool,
 }
 
 impl Default for Options {
@@ -329,6 +330,7 @@ impl Default for Options {
             ],
             line_ending: LineEnding::Auto,
             transformations: TransformationOptions::default(),
+            space_after_comma: true,
         }
     }
 }
@@ -402,6 +404,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.space_after_comma, true);
     }
 
     #[test]
@@ -413,6 +416,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.space_after_comma, true);
     }
 
     #[test]
@@ -427,6 +431,7 @@ mod tests {
             module_names_to_update: Vec::new(),
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
+            space_after_comma: false,
         };
 
         // Save options
@@ -447,6 +452,7 @@ mod tests {
         );
         assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
+        assert_eq!(loaded_options.space_after_comma, false);
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -468,6 +474,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.space_after_comma, true);
     }
 
     #[test]
@@ -512,6 +519,7 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Auto"
+space_after_comma = true
 
 [transformations]
 enable_uses_section = true
@@ -535,6 +543,7 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Lf"
+space_after_comma = false
 
 [transformations]
 enable_uses_section = true
@@ -558,6 +567,7 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Crlf"
+space_after_comma = true
 
 [transformations]
 enable_uses_section = true
