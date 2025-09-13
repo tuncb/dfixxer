@@ -167,8 +167,13 @@ mod tests {
     #[test]
     fn test_create_text_replacement_if_different_different_text() {
         let source = "original text";
-        let result =
-            create_text_replacement_if_different(source, 0, source.len(), "new text".to_string(), false);
+        let result = create_text_replacement_if_different(
+            source,
+            0,
+            source.len(),
+            "new text".to_string(),
+            false,
+        );
         assert!(result.is_some());
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);

@@ -1,7 +1,9 @@
 use crate::options::Options;
 use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
-use crate::transformer_utility::{adjust_replacement_for_line_position, create_text_replacement_if_different};
+use crate::transformer_utility::{
+    adjust_replacement_for_line_position, create_text_replacement_if_different,
+};
 
 /// Transform a single keyword section to lowercase if needed
 pub fn transform_single_keyword_section(
@@ -27,12 +29,8 @@ pub fn transform_single_keyword_section(
     }
 
     // Use transformer utility to handle line positioning
-    let (replacement_start, replacement_text) = adjust_replacement_for_line_position(
-        source,
-        keyword_start,
-        lowercase_keyword,
-        options,
-    );
+    let (replacement_start, replacement_text) =
+        adjust_replacement_for_line_position(source, keyword_start, lowercase_keyword, options);
 
     // Create replacement if the text is different
     create_text_replacement_if_different(
