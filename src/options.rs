@@ -49,6 +49,7 @@ impl LineEnding {
 pub struct TextChangeOptions {
     pub space_after_comma: bool,
     pub space_after_semi_colon: bool,
+    pub trim_trailing_whitespace: bool,
 }
 
 impl Default for TextChangeOptions {
@@ -56,6 +57,7 @@ impl Default for TextChangeOptions {
         TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: true,
+            trim_trailing_whitespace: true,
         }
     }
 }
@@ -466,6 +468,7 @@ mod tests {
             text_changes: TextChangeOptions {
                 space_after_comma: false,
                 space_after_semi_colon: true,
+                trim_trailing_whitespace: true,
             },
         };
 

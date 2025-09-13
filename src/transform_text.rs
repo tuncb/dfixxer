@@ -40,6 +40,10 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
         result = add_spaces_after_character(&result, ';');
     }
 
+    if options.trim_trailing_whitespace {
+        result = trim_trailing_whitespace(&result);
+    }
+
     result
 }
 
@@ -61,6 +65,35 @@ fn add_spaces_after_character(text: &str, target_char: char) -> String {
                 }
             }
         }
+    }
+
+    result
+}
+
+/// Trim trailing whitespace from each line in the text
+fn trim_trailing_whitespace(text: &str) -> String {
+    // Handle empty string
+    if text.is_empty() {
+        return String::new();
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut current_line = String::new();
+
+    for ch in text.chars() {
+        if ch == '\n' || ch == '\r' {
+            // Trim the current line and add it to result
+            result.push_str(current_line.trim_end());
+            result.push(ch);
+            current_line.clear();
+        } else {
+            current_line.push(ch);
+        }
+    }
+
+    // Handle the last line (if text doesn't end with newline)
+    if !current_line.is_empty() {
+        result.push_str(current_line.trim_end());
     }
 
     result
@@ -130,6 +163,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -149,6 +183,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -182,6 +217,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -211,6 +247,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -285,6 +322,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -296,6 +334,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: false,
             space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -307,6 +346,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -318,6 +358,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: false,
             space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -336,6 +377,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -355,6 +397,7 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -374,11 +417,121 @@ mod tests {
         let options = TextChangeOptions {
             space_after_comma: true,
             space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
         };
 
         let result = apply_text_transformations(source, replacements, &options);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].text, Some("a,b;c".to_string())); // Unchanged
         assert_eq!(result[0].is_final, true);
+    }
+
+    #[test]
+    fn test_trim_trailing_whitespace_single_line() {
+        let text = "Hello World   ";
+        assert_eq!(trim_trailing_whitespace(text), "Hello World");
+    }
+
+    #[test]
+    fn test_trim_trailing_whitespace_multiple_lines() {
+        let text = "Line 1   \nLine 2\t\t\nLine 3 \n";
+        assert_eq!(trim_trailing_whitespace(text), "Line 1\nLine 2\nLine 3\n");
+    }
+
+    #[test]
+    fn test_trim_trailing_whitespace_no_trailing_whitespace() {
+        let text = "Hello\nWorld\nNo trailing";
+        assert_eq!(trim_trailing_whitespace(text), "Hello\nWorld\nNo trailing");
+    }
+
+    #[test]
+    fn test_trim_trailing_whitespace_empty_lines() {
+        let text = "Line 1\n   \nLine 3\n\t\t\n";
+        assert_eq!(trim_trailing_whitespace(text), "Line 1\n\nLine 3\n\n");
+    }
+
+    #[test]
+    fn test_trim_trailing_whitespace_mixed_whitespace() {
+        let text = "Spaces   \nTabs\t\t\nMixed \t \nNoTrim";
+        assert_eq!(
+            trim_trailing_whitespace(text),
+            "Spaces\nTabs\nMixed\nNoTrim"
+        );
+    }
+
+    #[test]
+    fn test_apply_text_changes_with_trim_trailing_whitespace() {
+        let options = TextChangeOptions {
+            space_after_comma: false,
+            space_after_semi_colon: false,
+            trim_trailing_whitespace: true,
+        };
+        let text = "Line 1   \nLine 2\t\t\nLine 3 ";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "Line 1\nLine 2\nLine 3");
+    }
+
+    #[test]
+    fn test_apply_text_changes_combined_comma_and_trim() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: false,
+            trim_trailing_whitespace: true,
+        };
+        let text = "a,b,c   \nd,e,f\t\t";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a, b, c\nd, e, f");
+    }
+
+    #[test]
+    fn test_apply_text_changes_all_options_enabled() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: true,
+        };
+        let text = "a,b;c,d   \ne,f;g,h\t\t";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a, b; c, d\ne, f; g, h");
+    }
+
+    #[test]
+    fn test_apply_text_transformations_with_trim_trailing_whitespace() {
+        let source = "Original   ";
+        let replacements = vec![TextReplacement {
+            start: 0,
+            end: 11,
+            text: Some("a,b;c   \nd,e;f\t\t".to_string()),
+            is_final: false,
+        }];
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: true,
+        };
+
+        let result = apply_text_transformations(source, replacements, &options);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].text, Some("a, b; c\nd, e; f".to_string()));
+    }
+
+    #[test]
+    fn test_apply_text_transformations_identity_with_trim() {
+        let source = "Hello,World   \nFoo;Bar\t\t";
+        let replacements = vec![TextReplacement {
+            start: 0,
+            end: source.len(),
+            text: None, // Identity replacement
+            is_final: false,
+        }];
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: true,
+        };
+
+        let result = apply_text_transformations(source, replacements, &options);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].text, Some("Hello, World\nFoo; Bar".to_string()));
     }
 }

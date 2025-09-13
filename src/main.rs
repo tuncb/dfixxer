@@ -7,7 +7,7 @@ use options::Options;
 mod replacements;
 mod transform_procedure_section;
 mod transform_single_keyword_sections;
-mod transform_space_after_comma;
+mod transform_text;
 mod transform_unit_program_section;
 mod transform_uses_section;
 mod transformer_utility;
@@ -19,7 +19,7 @@ use parser::parse;
 
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
-use crate::transform_space_after_comma::apply_text_transformations;
+use crate::transform_text::apply_text_transformations;
 use crate::transform_unit_program_section::transform_unit_program_section;
 use crate::transform_uses_section::transform_uses_section;
 use std::collections::HashMap;
