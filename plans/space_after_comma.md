@@ -33,7 +33,7 @@ Add a new feature to automatically insert spaces after comma characters in Pasca
 ### In `main.rs`:
 - Collect unparsed regions between existing code sections
 - Apply comma transformation to unparsed regions when enabled
-- Apply comma transformation to replacement text from other transformations
+- Apply comma transformation to replacement text from other transformations/
 
 ### In `replacements.rs`:
 - Possibly extend `TextReplacement` to support chaining transformations
