@@ -30,121 +30,190 @@ pub fn apply_text_transformations(
 
 /// Apply all text changes to a text string based on the given options
 fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
+    // State machine to skip Delphi string literals and comments for spacing insertion.
+    // We still may trim trailing whitespace (optionally) per line, but trimming is safe
+    // inside comments / strings per spec given by user.
+    #[derive(Copy, Clone, PartialEq)]
+    enum State {
+        Code,
+        StringLiteral,    // Inside '...'
+        LineComment,      // // until newline
+        BraceComment,     // { ... }
+        ParenStarComment, // (* ... *)
+    }
+
     let mut result = String::with_capacity(text.len());
+    let mut state = State::Code;
     let mut chars = text.chars().peekable();
-    let mut last_non_whitespace = 0;
-    let mut idx = 0;
-    while let Some(ch) = chars.next() {
-        result.push(ch);
-        idx += ch.len_utf8();
-        // Add space after comma if needed
-        if options.space_after_comma && ch == ',' {
-            if let Some(&next_ch) = chars.peek() {
-                if !next_ch.is_whitespace() && next_ch != ',' {
-                    result.push(' ');
-                }
-            }
-        }
-        // Add space after semicolon if needed
-        if options.space_after_semi_colon && ch == ';' {
-            if let Some(&next_ch) = chars.peek() {
-                if !next_ch.is_whitespace() && next_ch != ';' {
-                    result.push(' ');
-                }
-            }
-        }
-        // Track last non-whitespace for trimming
-        if !ch.is_whitespace() {
-            last_non_whitespace = result.len();
-        }
-    }
-    if options.trim_trailing_whitespace {
-        result.truncate(last_non_whitespace);
-    }
-    result
-}
 
-// The add_spaces_after_character and trim_trailing_whitespace helpers are now unused and can be removed.
-/// Trim trailing whitespace from each line in the text
-fn trim_trailing_whitespace(text: &str) -> String {
-    // Handle empty string
-    if text.is_empty() {
-        return String::new();
-    }
-
-    let mut result = String::with_capacity(text.len());
+    // For trimming we accumulate current line raw output, then on newline flush trimmed.
+    let do_trim = options.trim_trailing_whitespace;
     let mut current_line = String::new();
 
-    for ch in text.chars() {
-        if ch == '\n' || ch == '\r' {
-            // Trim the current line and add it to result
-            result.push_str(current_line.trim_end());
-            result.push(ch);
-            current_line.clear();
+    // Helper to push a character to either current line buffer (if trimming) or directly.
+    let push_char = |c: char, current_line: &mut String, result: &mut String| {
+        if do_trim {
+            current_line.push(c);
         } else {
-            current_line.push(ch);
+            result.push(c);
+        }
+    };
+
+    // Helper to flush a newline (\n or \r) handling trimming.
+    let flush_line_ending = |newline: char, current_line: &mut String, result: &mut String| {
+        if do_trim {
+            // Trim end whitespace of accumulated line, then push
+            let trimmed = current_line.trim_end();
+            result.push_str(trimmed);
+            current_line.clear();
+            result.push(newline);
+        } else {
+            result.push(newline);
+        }
+    };
+
+    while let Some(ch) = chars.next() {
+        match state {
+            State::Code => {
+                match ch {
+                    '\'' => {
+                        // Enter string literal
+                        push_char(ch, &mut current_line, &mut result);
+                        state = State::StringLiteral;
+                    }
+                    '{' => {
+                        // Brace comment
+                        push_char(ch, &mut current_line, &mut result);
+                        state = State::BraceComment;
+                    }
+                    '(' => {
+                        // Could start (* comment *)
+                        if let Some('*') = chars.peek().copied() {
+                            // consume '*'
+                            let star = chars.next().unwrap();
+                            push_char('(', &mut current_line, &mut result);
+                            push_char(star, &mut current_line, &mut result);
+                            state = State::ParenStarComment;
+                        } else {
+                            push_char('(', &mut current_line, &mut result);
+                        }
+                    }
+                    '/' => {
+                        if let Some('/') = chars.peek().copied() {
+                            // line comment
+                            let slash2 = chars.next().unwrap();
+                            push_char('/', &mut current_line, &mut result);
+                            push_char(slash2, &mut current_line, &mut result);
+                            state = State::LineComment;
+                        } else {
+                            push_char('/', &mut current_line, &mut result);
+                        }
+                    }
+                    ',' => {
+                        // Potential spacing insertion (only in code state)
+                        push_char(',', &mut current_line, &mut result);
+                        if options.space_after_comma {
+                            if let Some(&next_ch) = chars.peek() {
+                                if !next_ch.is_whitespace() && next_ch != ',' {
+                                    push_char(' ', &mut current_line, &mut result);
+                                }
+                            }
+                        }
+                    }
+                    ';' => {
+                        push_char(';', &mut current_line, &mut result);
+                        if options.space_after_semi_colon {
+                            if let Some(&next_ch) = chars.peek() {
+                                if !next_ch.is_whitespace() && next_ch != ';' {
+                                    push_char(' ', &mut current_line, &mut result);
+                                }
+                            }
+                        }
+                    }
+                    '\n' | '\r' => {
+                        flush_line_ending(ch, &mut current_line, &mut result);
+                    }
+                    _ => {
+                        push_char(ch, &mut current_line, &mut result);
+                    }
+                }
+            }
+            State::StringLiteral => {
+                push_char(ch, &mut current_line, &mut result);
+                if ch == '\'' {
+                    // Delphi doubles '' inside a string to escape a single quote.
+                    if let Some('\'') = chars.peek().copied() {
+                        // escaped quote, consume and add it
+                        let q = chars.next().unwrap();
+                        push_char(q, &mut current_line, &mut result);
+                    } else {
+                        state = State::Code;
+                    }
+                }
+                if ch == '\n' || ch == '\r' {
+                    // unterminated string line break: treat as code afterwards
+                    flush_line_ending(ch, &mut current_line, &mut result);
+                    state = State::Code;
+                }
+            }
+            State::LineComment => {
+                if ch == '\n' || ch == '\r' {
+                    // Do not push newline into buffer first; flush handles adding it (for trim=false directly, for trim=true after trimming)
+                    if do_trim {
+                        // Trim and output line, then newline
+                        let trimmed = current_line.trim_end();
+                        result.push_str(trimmed);
+                        current_line.clear();
+                        result.push(ch);
+                    } else {
+                        result.push(ch);
+                    }
+                    state = State::Code;
+                } else {
+                    if do_trim {
+                        current_line.push(ch);
+                    } else {
+                        result.push(ch);
+                    }
+                }
+            }
+            State::BraceComment => {
+                push_char(ch, &mut current_line, &mut result);
+                if ch == '}' {
+                    state = State::Code;
+                }
+                if ch == '\n' || ch == '\r' {
+                    flush_line_ending(ch, &mut current_line, &mut result);
+                }
+            }
+            State::ParenStarComment => {
+                push_char(ch, &mut current_line, &mut result);
+                if ch == '*' {
+                    // Look ahead for )
+                    if let Some(')') = chars.peek().copied() {
+                        let cp = chars.next().unwrap();
+                        push_char(cp, &mut current_line, &mut result);
+                        state = State::Code;
+                    }
+                }
+                if ch == '\n' || ch == '\r' {
+                    flush_line_ending(ch, &mut current_line, &mut result);
+                }
+            }
         }
     }
 
-    // Handle the last line (if text doesn't end with newline)
-    if !current_line.is_empty() {
-        result.push_str(current_line.trim_end());
+    if do_trim && !current_line.is_empty() {
+        // flush last line (no newline present)
+        let trimmed = current_line.trim_end();
+        result.push_str(trimmed);
     }
-
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_add_spaces_after_character_no_commas() {
-        let text = "Hello World";
-        assert_eq!(add_spaces_after_character(text, ','), "Hello World");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_comma_with_space() {
-        let text = "Hello, World";
-        assert_eq!(add_spaces_after_character(text, ','), "Hello, World");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_comma_without_space() {
-        let text = "Hello,World";
-        assert_eq!(add_spaces_after_character(text, ','), "Hello, World");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_multiple_commas() {
-        let text = "A,B,C,D";
-        assert_eq!(add_spaces_after_character(text, ','), "A, B, C, D");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_mixed_commas() {
-        let text = "A, B,C, D,E";
-        assert_eq!(add_spaces_after_character(text, ','), "A, B, C, D, E");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_comma_at_end() {
-        let text = "Hello,";
-        assert_eq!(add_spaces_after_character(text, ','), "Hello,");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_comma_before_newline() {
-        let text = "Hello,\nWorld";
-        assert_eq!(add_spaces_after_character(text, ','), "Hello,\nWorld");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_consecutive_commas() {
-        let text = "A,,B";
-        assert_eq!(add_spaces_after_character(text, ','), "A,, B");
-    }
 
     #[test]
     fn test_apply_text_transformations_comma_only_with_identity_replacement() {
@@ -253,63 +322,6 @@ mod tests {
         // Regular replacement should have spaces added
         assert_eq!(result[1].text, Some(" test, code".to_string()));
         assert_eq!(result[1].is_final, false);
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_semicolon() {
-        let text = "a;b;c";
-        assert_eq!(add_spaces_after_character(text, ';'), "a; b; c");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_semicolon_with_space() {
-        let text = "a; b;c";
-        assert_eq!(add_spaces_after_character(text, ';'), "a; b; c");
-    }
-
-    #[test]
-    fn test_add_spaces_after_character_semicolon_before_newline() {
-        let text = "a;\nb";
-        assert_eq!(add_spaces_after_character(text, ';'), "a;\nb");
-    }
-
-    #[test]
-    fn test_newline_behavior_comprehensive() {
-        // Test various whitespace scenarios with commas
-        let comma_tests = vec![
-            ("a,b", "a, b"),        // No space after comma -> add space
-            ("a, b", "a, b"),       // Already has space -> no change
-            ("a,\nb", "a,\nb"),     // Newline after comma -> no space added
-            ("a,\tb", "a,\tb"),     // Tab after comma -> no space added
-            ("a,\r\nb", "a,\r\nb"), // CRLF after comma -> no space added
-        ];
-
-        for (input, expected) in comma_tests {
-            assert_eq!(
-                add_spaces_after_character(input, ','),
-                expected,
-                "Failed for comma test: {}",
-                input
-            );
-        }
-
-        // Test various whitespace scenarios with semicolons
-        let semicolon_tests = vec![
-            ("a;b", "a; b"),        // No space after semicolon -> add space
-            ("a; b", "a; b"),       // Already has space -> no change
-            ("a;\nb", "a;\nb"),     // Newline after semicolon -> no space added
-            ("a;\tb", "a;\tb"),     // Tab after semicolon -> no space added
-            ("a;\r\nb", "a;\r\nb"), // CRLF after semicolon -> no space added
-        ];
-
-        for (input, expected) in semicolon_tests {
-            assert_eq!(
-                add_spaces_after_character(input, ';'),
-                expected,
-                "Failed for semicolon test: {}",
-                input
-            );
-        }
     }
 
     #[test]
@@ -422,39 +434,6 @@ mod tests {
     }
 
     #[test]
-    fn test_trim_trailing_whitespace_single_line() {
-        let text = "Hello World   ";
-        assert_eq!(trim_trailing_whitespace(text), "Hello World");
-    }
-
-    #[test]
-    fn test_trim_trailing_whitespace_multiple_lines() {
-        let text = "Line 1   \nLine 2\t\t\nLine 3 \n";
-        assert_eq!(trim_trailing_whitespace(text), "Line 1\nLine 2\nLine 3\n");
-    }
-
-    #[test]
-    fn test_trim_trailing_whitespace_no_trailing_whitespace() {
-        let text = "Hello\nWorld\nNo trailing";
-        assert_eq!(trim_trailing_whitespace(text), "Hello\nWorld\nNo trailing");
-    }
-
-    #[test]
-    fn test_trim_trailing_whitespace_empty_lines() {
-        let text = "Line 1\n   \nLine 3\n\t\t\n";
-        assert_eq!(trim_trailing_whitespace(text), "Line 1\n\nLine 3\n\n");
-    }
-
-    #[test]
-    fn test_trim_trailing_whitespace_mixed_whitespace() {
-        let text = "Spaces   \nTabs\t\t\nMixed \t \nNoTrim";
-        assert_eq!(
-            trim_trailing_whitespace(text),
-            "Spaces\nTabs\nMixed\nNoTrim"
-        );
-    }
-
-    #[test]
     fn test_apply_text_changes_with_trim_trailing_whitespace() {
         let options = TextChangeOptions {
             space_after_comma: false,
@@ -528,5 +507,71 @@ mod tests {
         let result = apply_text_transformations(source, replacements, &options);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].text, Some("Hello, World\nFoo; Bar".to_string()));
+    }
+
+    // --- New tests ensuring spacing is skipped inside strings & comments ---
+    #[test]
+    fn test_skip_spacing_inside_string_literal() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        let text = "'a,b;c',x;y";
+        // Only commas/semicolons outside the quotes should be spaced.
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "'a,b;c', x; y");
+    }
+
+    #[test]
+    fn test_skip_spacing_inside_brace_comment() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        let text = "{a,b;c},x;y";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "{a,b;c}, x; y");
+    }
+
+    #[test]
+    fn test_skip_spacing_inside_paren_star_comment() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        let text = "(*a,b;c*),x;y";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "(*a,b;c*), x; y");
+    }
+
+    #[test]
+    fn test_skip_spacing_inside_line_comment() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        let text = "// a,b;c\nx,y;z";
+        let result = apply_text_changes(text, &options);
+        // Only second line is transformed.
+        assert_eq!(result, "// a,b;c\nx, y; z");
+    }
+
+    #[test]
+    fn test_mixed_code_and_comments_and_strings() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        let text = "val:='a,b'; // c,d;e\n{ x,y;z } foo,bar;baz (* p,q;r *) qux,quux";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(
+            result,
+            "val:='a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
+        );
     }
 }

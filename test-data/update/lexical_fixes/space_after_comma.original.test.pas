@@ -1,8 +1,8 @@
 program SpaceAfterCommaTest;
 
-{ Test file for space after comma functionality }
+{ Test,file,for,space;after,comma functionality }
 
-function CalculateSum(a,b,c: Integer): Integer;
+function CalculateSum(a,b,c: Integer): Integer; // Test,file,for,space;after,comma functionality
 begin
   Result := a + b + c;
 end;
@@ -19,7 +19,7 @@ begin
   flag2 := False;
   enabled := flag1 and flag2;
 
-  WriteLn('Name: ',name);
+  WriteLn('Name: no,space,should;be ,in between ', name);
   WriteLn('Surname: ',surname);
   WriteLn('Address: ',address);
   WriteLn('Age: ',age);
