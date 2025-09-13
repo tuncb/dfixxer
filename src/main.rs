@@ -19,7 +19,7 @@ use parser::parse;
 
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
-use crate::transform_space_after_comma::add_spaces_after_commas;
+use crate::transform_space_after_comma::apply_text_transformations;
 use crate::transform_unit_program_section::transform_unit_program_section;
 use crate::transform_uses_section::transform_uses_section;
 use std::collections::HashMap;
@@ -137,12 +137,12 @@ fn process_file(
             .collect()
     });
 
-    // Apply space_after_comma transformation if enabled
-    if options.text_changes.space_after_comma {
-        replacements = timing.time_operation("Space after comma", || {
-            // Fill gaps to get all text as replacements, then apply comma spacing
+    // Apply text transformations if any are enabled
+    if options.transformations.enable_text_transformations {
+        replacements = timing.time_operation("Text transformations", || {
+            // Fill gaps to get all text as replacements, then apply text transformations
             let all_replacements = fill_gaps_with_identity_replacements(&source, replacements);
-            add_spaces_after_commas(&source, all_replacements)
+            apply_text_transformations(&source, all_replacements, &options.text_changes)
         });
     }
 

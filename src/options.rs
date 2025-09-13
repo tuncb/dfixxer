@@ -48,12 +48,14 @@ impl LineEnding {
 #[serde(default)]
 pub struct TextChangeOptions {
     pub space_after_comma: bool,
+    pub space_after_semi_colon: bool,
 }
 
 impl Default for TextChangeOptions {
     fn default() -> Self {
         TextChangeOptions {
             space_after_comma: true,
+            space_after_semi_colon: true,
         }
     }
 }
@@ -463,6 +465,7 @@ mod tests {
             transformations: TransformationOptions::default(),
             text_changes: TextChangeOptions {
                 space_after_comma: false,
+                space_after_semi_colon: true,
             },
         };
 

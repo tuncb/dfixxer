@@ -7,7 +7,7 @@ begin
   Result := a + b + c;
 end;
 
-procedure ProcessData(name, surname, address: string;age, id: Integer);
+procedure ProcessData(name, surname, address: string; age, id: Integer);
 var
   x, y, z: Integer;
   flag1, flag2, enabled: Boolean;
