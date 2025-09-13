@@ -4,7 +4,7 @@ use crate::dfixxer_error::DFixxerError;
 pub struct TextReplacement {
     pub start: usize,
     pub end: usize,
-    pub text: Option<String>,  // None means use original text from source[start..end]
+    pub text: Option<String>, // None means use original text from source[start..end]
 }
 
 impl TextReplacement {
@@ -34,44 +34,48 @@ impl TextReplacement {
     }
 }
 
+pub fn print_replacement(original_source: &str, replacement: &TextReplacement, index: usize) {
+    let (start_line, start_col) =
+        TextReplacement::get_line_column(original_source, replacement.start);
+    let (end_line, end_col) =
+        TextReplacement::get_line_column(original_source, replacement.end);
+    let original_text = replacement.get_original_text(original_source);
+
+    println!("Replacement {}:", index);
+    println!(
+        "  Location: {}:{}-{}:{}",
+        start_line, start_col, end_line, end_col
+    );
+    println!("  Original:");
+    for line in original_text.lines() {
+        println!("    - {}", line);
+    }
+    println!("  Replacement:");
+    if let Some(ref text) = replacement.text {
+        for line in text.lines() {
+            println!("    + {}", line);
+        }
+    }
+    println!();
+}
+
 pub fn print_replacements(original_source: &str, replacements: &[TextReplacement]) {
-    if replacements.is_empty() {
+    let non_identity_replacements: Vec<_> = replacements
+        .iter()
+        .filter(|r| r.text.is_some())
+        .collect();
+
+    if non_identity_replacements.is_empty() {
         return;
     }
 
-    for (i, replacement) in replacements.iter().enumerate() {
-        // Skip identity replacements when printing
-        if replacement.text.is_none() {
-            continue;
-        }
-
-        let (start_line, start_col) =
-            TextReplacement::get_line_column(original_source, replacement.start);
-        let (end_line, end_col) =
-            TextReplacement::get_line_column(original_source, replacement.end);
-        let original_text = replacement.get_original_text(original_source);
-
-        println!("Replacement {}:", i + 1);
-        println!(
-            "  Location: {}:{}-{}:{}",
-            start_line, start_col, end_line, end_col
-        );
-        println!("  Original:");
-        for line in original_text.lines() {
-            println!("    - {}", line);
-        }
-        println!("  Replacement:");
-        if let Some(ref text) = replacement.text {
-            for line in text.lines() {
-                println!("    + {}", line);
-            }
-        }
-        println!();
+    for (i, replacement) in non_identity_replacements.iter().enumerate() {
+        print_replacement(original_source, replacement, i + 1);
     }
 }
 
 /// Generate identity replacements for the gaps between existing replacements
-fn fill_gaps_with_identity_replacements(
+pub fn fill_gaps_with_identity_replacements(
     original_source: &str,
     mut replacements: Vec<TextReplacement>,
 ) -> Vec<TextReplacement> {
@@ -80,7 +84,7 @@ fn fill_gaps_with_identity_replacements(
         return vec![TextReplacement {
             start: 0,
             end: original_source.len(),
-            text: None,  // Identity replacement - use original text
+            text: None, // Identity replacement - use original text
         }];
     }
 
@@ -96,7 +100,7 @@ fn fill_gaps_with_identity_replacements(
             all_replacements.push(TextReplacement {
                 start: last_end,
                 end: replacement.start,
-                text: None,  // Identity replacement - use original text
+                text: None, // Identity replacement - use original text
             });
         }
 
@@ -113,14 +117,14 @@ fn fill_gaps_with_identity_replacements(
         all_replacements.push(TextReplacement {
             start: last_end,
             end: original_source.len(),
-            text: None,  // Identity replacement - use original text
+            text: None, // Identity replacement - use original text
         });
     }
 
     all_replacements
 }
 
-pub fn apply_replacements(
+pub fn merge_replacements(
     filename: &str,
     original_source: &str,
     replacements: Vec<TextReplacement>,
@@ -166,13 +170,11 @@ mod tests {
     #[test]
     fn test_fill_gaps_single_replacement() {
         let source = "Hello, world!";
-        let replacements = vec![
-            TextReplacement {
-                start: 7,
-                end: 12,
-                text: Some("Rust".to_string()),
-            },
-        ];
+        let replacements = vec![TextReplacement {
+            start: 7,
+            end: 12,
+            text: Some("Rust".to_string()),
+        }];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
         assert_eq!(result.len(), 3);
@@ -209,10 +211,13 @@ mod tests {
 
         assert_eq!(result.len(), 5);
         // Check that all parts concatenate to form expected result
-        let final_text: String = result.iter().map(|r| match &r.text {
-            Some(text) => text.clone(),
-            None => source[r.start..r.end].to_string(),
-        }).collect();
+        let final_text: String = result
+            .iter()
+            .map(|r| match &r.text {
+                Some(text) => text.clone(),
+                None => source[r.start..r.end].to_string(),
+            })
+            .collect();
         assert_eq!(final_text, "The slow green fox");
     }
 
@@ -234,23 +239,24 @@ mod tests {
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
         assert_eq!(result.len(), 4);
-        let final_text: String = result.iter().map(|r| match &r.text {
-            Some(text) => text.clone(),
-            None => source[r.start..r.end].to_string(),
-        }).collect();
+        let final_text: String = result
+            .iter()
+            .map(|r| match &r.text {
+                Some(text) => text.clone(),
+                None => source[r.start..r.end].to_string(),
+            })
+            .collect();
         assert_eq!(final_text, "aXXYYf");
     }
 
     #[test]
     fn test_fill_gaps_entire_file_replacement() {
         let source = "original";
-        let replacements = vec![
-            TextReplacement {
-                start: 0,
-                end: source.len(),
-                text: Some("replaced".to_string()),
-            },
-        ];
+        let replacements = vec![TextReplacement {
+            start: 0,
+            end: source.len(),
+            text: Some("replaced".to_string()),
+        }];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
         assert_eq!(result.len(), 1);
