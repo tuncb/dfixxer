@@ -9,11 +9,23 @@ pub enum UsesSectionStyle {
     CommaAtTheEnd,
 }
 
+impl Default for UsesSectionStyle {
+    fn default() -> Self {
+        UsesSectionStyle::CommaAtTheEnd
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum LineEnding {
     Auto,
     Crlf,
     Lf,
+}
+
+impl Default for LineEnding {
+    fn default() -> Self {
+        LineEnding::Auto
+    }
 }
 
 impl LineEnding {
@@ -33,6 +45,7 @@ impl LineEnding {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TransformationOptions {
     pub enable_uses_section: bool,
     pub enable_unit_program_section: bool,
@@ -52,6 +65,7 @@ impl Default for TransformationOptions {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Options {
     pub indentation: String,
     pub uses_section_style: UsesSectionStyle,
@@ -457,17 +471,73 @@ mod tests {
         let temp_path = create_unique_temp_dir();
         let file_path = temp_path.join("partial_config.toml");
 
-        // Create a TOML file with missing indentation field
-        fs::write(&file_path, "# Config file with no indentation setting").unwrap();
+        // Create a TOML file with only some fields set
+        fs::write(&file_path, r#"
+# Partial config file with only indentation and line_ending set
+indentation = "    "
+line_ending = "Lf"
+"#).unwrap();
 
-        // This should fail to parse, so load_or_default should return default
-        let options = Options::load_or_default(&file_path);
+        // This should now parse successfully using defaults for missing fields
+        let options = Options::load_from_file(&file_path).unwrap();
+        assert_eq!(options.indentation, "    "); // From file
+        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd); // Default
+        assert_eq!(options.override_sorting_order, Vec::<String>::new()); // Default
+        assert!(!options.module_names_to_update.is_empty()); // Default
+        assert_eq!(options.module_names_to_update.len(), 258); // Default
+        assert_eq!(options.line_ending, LineEnding::Lf); // From file
+
+        // Clean up
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
+    }
+
+    #[test]
+    fn test_empty_toml_file() {
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("empty_config.toml");
+
+        // Create an empty TOML file
+        fs::write(&file_path, "").unwrap();
+
+        // This should parse successfully using all defaults
+        let options = Options::load_from_file(&file_path).unwrap();
+        let default_options = Options::default();
+        assert_eq!(options.indentation, default_options.indentation);
+        assert_eq!(options.uses_section_style, default_options.uses_section_style);
+        assert_eq!(options.override_sorting_order, default_options.override_sorting_order);
+        assert_eq!(options.module_names_to_update.len(), default_options.module_names_to_update.len());
+        assert_eq!(options.line_ending, default_options.line_ending);
+
+        // Clean up
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
+    }
+
+    #[test]
+    fn test_partial_transformations_config() {
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("partial_transformations_config.toml");
+
+        // Create a TOML file with partial transformations section
+        fs::write(&file_path, r#"
+indentation = "  "
+
+[transformations]
+enable_uses_section = false
+# Other transformation options should use defaults
+"#).unwrap();
+
+        let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.override_sorting_order, Vec::<String>::new());
-        assert!(!options.module_names_to_update.is_empty());
-        assert_eq!(options.module_names_to_update.len(), 258);
-        assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.transformations.enable_uses_section, false); // From file
+        assert_eq!(options.transformations.enable_unit_program_section, true); // Default
+        assert_eq!(options.transformations.enable_single_keyword_sections, true); // Default
+        assert_eq!(options.transformations.enable_procedure_section, true); // Default
+
+        // Clean up
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
     }
 
     #[test]
