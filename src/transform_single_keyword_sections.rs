@@ -40,6 +40,7 @@ pub fn transform_single_keyword_section(
         replacement_start,
         keyword_end,
         replacement_text,
+        false,
     )
 }
 
