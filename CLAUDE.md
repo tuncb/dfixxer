@@ -12,10 +12,13 @@ dfixxer is a Rust command-line tool that reformats and sorts Delphi/Pascal `uses
 - **Build release**: `cargo build --release`
 - **Run tests**: `cargo test`
 - **Run with logging**: `cargo run -- --log-level debug <command> <args>`
+- **See tree-sitter tree**: `cargo run -- parse`
+- **See parser output**: `cargo run -- parse-debug`
 
 The binary is `dfixxer` (or `dfixxer.exe` on Windows) and can be found in `target/debug/` or `target/release/`.
 
 ## Architecture
+
 
 ### Core Modules
 
@@ -23,18 +26,12 @@ The binary is `dfixxer` (or `dfixxer.exe` on Windows) and can be found in `targe
 - `arguments.rs`: Command-line argument parsing using clap
 - `options.rs`: Configuration file handling (dfixxer.toml) with TOML parsing
 - `parser.rs`: Tree-sitter-pascal integration for AST parsing
-- `uses_section.rs`: Core logic for transforming uses sections (sorting, formatting, namespace handling)
 - `replacements.rs`: Text replacement engine for applying changes to source files
+- `transform_XXX`: Each transformation rule is implemented in a separate file.
 - `dfixxer_error.rs`: Error handling types
 
-### Key Configuration Options
-
-The tool uses `dfixxer.toml` configuration files with these main settings:
-- `indentation`: String for indentation (default: two spaces)
-- `uses_section_style`: "CommaAtTheEnd" or "CommaAtTheBeginning"
-- `line_ending`: "Auto", "Crlf", or "Lf"
-- `override_sorting_order`: Array of namespace prefixes to prioritize
-- `module_names_to_update`: Array of "Prefix:ShortName" mappings for unit qualification
+### Execution flow
+- see process_file function in `main.rs` for the check and update workflow
 
 ### Processing Flow
 
@@ -48,7 +45,13 @@ The tool uses `dfixxer.toml` configuration files with these main settings:
 
 ## Testing and Examples
 
-The project includes example Pascal files in an `examples/` directory for testing. The tool handles parse errors gracefully by skipping problematic sections and printing warnings.
+### Examples
+- Add new examples to examples/ folder.
+- The parse and parse-debug commands to the app can be used to examine the tree-sitter and parser.rs output
+
+### Testing
+- Add small tests to the source code itself
+- there is e2e testing (test_update_smoke), add update tests to test-data/update folder. we recursively go through and compare XXX.original.test.pas files to XXX.correct.test.pas
 
 ## Development Notes
 
