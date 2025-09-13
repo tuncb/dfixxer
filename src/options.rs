@@ -33,12 +33,32 @@ impl LineEnding {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct TransformationOptions {
+    pub enable_uses_section: bool,
+    pub enable_unit_program_section: bool,
+    pub enable_single_keyword_sections: bool,
+    pub enable_procedure_section: bool,
+}
+
+impl Default for TransformationOptions {
+    fn default() -> Self {
+        TransformationOptions {
+            enable_uses_section: true,
+            enable_unit_program_section: true,
+            enable_single_keyword_sections: true,
+            enable_procedure_section: true,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Options {
     pub indentation: String,
     pub uses_section_style: UsesSectionStyle,
     pub override_sorting_order: Vec<String>,
     pub module_names_to_update: Vec<String>,
     pub line_ending: LineEnding,
+    pub transformations: TransformationOptions,
 }
 
 impl Default for Options {
@@ -308,6 +328,7 @@ impl Default for Options {
                 "Winapi:oleacc".to_string(),
             ],
             line_ending: LineEnding::Auto,
+            transformations: TransformationOptions::default(),
         }
     }
 }
@@ -405,6 +426,7 @@ mod tests {
             override_sorting_order: vec!["test_error".to_string()],
             module_names_to_update: Vec::new(),
             line_ending: LineEnding::Lf,
+            transformations: TransformationOptions::default(),
         };
 
         // Save options
@@ -490,6 +512,12 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Auto"
+
+[transformations]
+enable_uses_section = true
+enable_unit_program_section = true
+enable_single_keyword_sections = true
+enable_procedure_section = true
 "#,
         )
         .unwrap();
@@ -507,6 +535,12 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Lf"
+
+[transformations]
+enable_uses_section = true
+enable_unit_program_section = true
+enable_single_keyword_sections = true
+enable_procedure_section = true
 "#,
         )
         .unwrap();
@@ -524,6 +558,12 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Crlf"
+
+[transformations]
+enable_uses_section = true
+enable_unit_program_section = true
+enable_single_keyword_sections = true
+enable_procedure_section = true
 "#,
         )
         .unwrap();

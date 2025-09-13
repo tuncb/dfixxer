@@ -97,18 +97,36 @@ fn process_file(
             .code_sections
             .iter()
             .filter_map(|code_section| match code_section.keyword.kind {
-                parser::Kind::Uses => transform_uses_section(code_section, &options, &source),
+                parser::Kind::Uses => {
+                    if options.transformations.enable_uses_section {
+                        transform_uses_section(code_section, &options, &source)
+                    } else {
+                        None
+                    }
+                }
                 parser::Kind::Unit | parser::Kind::Program => {
-                    transform_unit_program_section(code_section, &options, &source)
+                    if options.transformations.enable_unit_program_section {
+                        transform_unit_program_section(code_section, &options, &source)
+                    } else {
+                        None
+                    }
                 }
                 parser::Kind::Interface
                 | parser::Kind::Implementation
                 | parser::Kind::Initialization
                 | parser::Kind::Finalization => {
-                    transform_single_keyword_section(&source, code_section, &options)
+                    if options.transformations.enable_single_keyword_sections {
+                        transform_single_keyword_section(&source, code_section, &options)
+                    } else {
+                        None
+                    }
                 }
                 parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration => {
-                    transform_procedure_section(code_section, &options, &source)
+                    if options.transformations.enable_procedure_section {
+                        transform_procedure_section(code_section, &options, &source)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             })
