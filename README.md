@@ -3,13 +3,7 @@
 
 Version: 0.1.0
 
-A command-line tool that reformats and sorts Delphi/Pascal uses sections in-place, powered by tree-sitter.
-
-- Parses Pascal via tree-sitter-pascal
-- Formats the uses section with a chosen style and indentation
-- Sorts unit names, with optional namespace prioritization
-- Optionally rewrites short unit names into fully-qualified ones
-- Leaves sections untouched when grammar errors or unsupported constructs are detected
+A command-line tool that reformats Delphi/Pascal files.
 
 ## Install / build
 
@@ -84,6 +78,28 @@ Creates a default configuration file at the specified path.
 **Arguments:**
 - `<filename>`: Path where the configuration file should be created (required)
 
+#### `parse` - Debug: Show AST
+
+```
+dfixxer parse <filename>
+```
+
+Parses a Pascal file and prints its Abstract Syntax Tree (AST) for debugging purposes.
+
+**Arguments:**
+- `<filename>`: Path to the Pascal file to parse (required)
+
+#### `parse-debug` - Debug: Show detailed parsing information
+
+```
+dfixxer parse-debug <filename>
+```
+
+Parses a Pascal file and prints detailed debug information including parser output for troubleshooting.
+
+**Arguments:**
+- `<filename>`: Path to the Pascal file to parse with debug output (required)
+
 ### Exit Codes
 
 - `0`: Success (no changes needed for `check` command, or successful completion for other commands)
@@ -94,7 +110,6 @@ Creates a default configuration file at the specified path.
 
 - If a uses section or its parent has a parse error, it is skipped and a warning is printed
 - If a uses section contains preprocessor directives (`{$...}`) or comment nodes at the same level as unit names, it's treated as unsupported and skipped with a warning
-- Only the uses section is reformatted; other code remains unchangeds-section)
 
 ### Examples
 
@@ -262,8 +277,6 @@ module_names_to_update = [
 
 - **Parse errors**: Sections with syntax errors are skipped (warning printed)
 - **Unsupported constructs**: Sections containing preprocessor directives (`{$...}`) or comments at the same level as unit names are skipped (warning printed)
-- **Scope**: Only uses sections are reformatted; other code remains unchanged
-- **Language support**: Currently supports Pascal/Delphi syntax only
 
 ## License
 
