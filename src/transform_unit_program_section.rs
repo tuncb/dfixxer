@@ -1,8 +1,9 @@
 use crate::options::Options;
 use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
-use crate::transformer_utility::{adjust_replacement_for_line_position, create_text_replacement_if_different};
-
+use crate::transformer_utility::{
+    adjust_replacement_for_line_position, create_text_replacement_if_different,
+};
 
 /// Transform a parser::CodeSection to TextReplacement (only for unit and program sections)
 /// Expects exactly two siblings: module name followed by semicolon
@@ -174,7 +175,6 @@ mod tests {
         let result = transform_unit_program_section(&code_section, &options, source);
         assert!(result.is_none()); // Should skip because it's not unit/program
     }
-
 
     #[test]
     fn test_skip_section_with_wrong_sibling_count() {
