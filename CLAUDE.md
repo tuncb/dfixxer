@@ -6,19 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 dfixxer is a Rust command-line tool that reformats and sorts Delphi/Pascal `uses` sections in-place using tree-sitter-pascal for parsing. The tool provides three main commands: `update` (modify files), `check` (preview changes), and `init-config` (create default configuration).
 
+Debug output can be shown by `parse` (see tree-sitter output) and `parse-debug` (see parser output)
+
 ## Build and Development Commands
 
 - **Build debug**: `cargo build`
 - **Build release**: `cargo build --release`
 - **Run tests**: `cargo test`
 - **Run with logging**: `cargo run -- --log-level debug <command> <args>`
-- **See tree-sitter tree**: `cargo run -- parse`
-- **See parser output**: `cargo run -- parse-debug`
 
 The binary is `dfixxer` (or `dfixxer.exe` on Windows) and can be found in `target/debug/` or `target/release/`.
 
 ## Architecture
-
 
 ### Core Modules
 
