@@ -136,7 +136,7 @@ mod tests {
         let result = transform_unit_program_section(&code_section, &options, source);
         assert!(result.is_some());
         let replacement = result.unwrap();
-        assert_eq!(replacement.text, "unit MyUnit;");
+        assert_eq!(replacement.text, Some("unit MyUnit;".to_string()));
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 17);
     }

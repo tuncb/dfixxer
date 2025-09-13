@@ -4,7 +4,7 @@ use crate::dfixxer_error::DFixxerError;
 pub struct TextReplacement {
     pub start: usize,
     pub end: usize,
-    pub text: String,
+    pub text: Option<String>,  // None means use original text from source[start..end]
 }
 
 impl TextReplacement {
@@ -40,6 +40,11 @@ pub fn print_replacements(original_source: &str, replacements: &[TextReplacement
     }
 
     for (i, replacement) in replacements.iter().enumerate() {
+        // Skip identity replacements when printing
+        if replacement.text.is_none() {
+            continue;
+        }
+
         let (start_line, start_col) =
             TextReplacement::get_line_column(original_source, replacement.start);
         let (end_line, end_col) =
@@ -56,8 +61,10 @@ pub fn print_replacements(original_source: &str, replacements: &[TextReplacement
             println!("    - {}", line);
         }
         println!("  Replacement:");
-        for line in replacement.text.lines() {
-            println!("    + {}", line);
+        if let Some(ref text) = replacement.text {
+            for line in text.lines() {
+                println!("    + {}", line);
+            }
         }
         println!();
     }
@@ -73,7 +80,7 @@ fn fill_gaps_with_identity_replacements(
         return vec![TextReplacement {
             start: 0,
             end: original_source.len(),
-            text: original_source.to_string(),
+            text: None,  // Identity replacement - use original text
         }];
     }
 
@@ -89,7 +96,7 @@ fn fill_gaps_with_identity_replacements(
             all_replacements.push(TextReplacement {
                 start: last_end,
                 end: replacement.start,
-                text: original_source[last_end..replacement.start].to_string(),
+                text: None,  // Identity replacement - use original text
             });
         }
 
@@ -106,7 +113,7 @@ fn fill_gaps_with_identity_replacements(
         all_replacements.push(TextReplacement {
             start: last_end,
             end: original_source.len(),
-            text: original_source[last_end..].to_string(),
+            text: None,  // Identity replacement - use original text
         });
     }
 
@@ -128,7 +135,10 @@ pub fn apply_replacements(
     // Construct the final text by concatenating all replacement texts
     let modified_source: String = all_replacements
         .into_iter()
-        .map(|r| r.text)
+        .map(|r| match r.text {
+            Some(text) => text,
+            None => original_source[r.start..r.end].to_string(),
+        })
         .collect();
 
     // Write the modified source back to the file
@@ -150,7 +160,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].start, 0);
         assert_eq!(result[0].end, source.len());
-        assert_eq!(result[0].text, source);
+        assert_eq!(result[0].text, None);
     }
 
     #[test]
@@ -160,7 +170,7 @@ mod tests {
             TextReplacement {
                 start: 7,
                 end: 12,
-                text: "Rust".to_string(),
+                text: Some("Rust".to_string()),
             },
         ];
         let result = fill_gaps_with_identity_replacements(source, replacements);
@@ -169,15 +179,15 @@ mod tests {
         // First gap: "Hello, "
         assert_eq!(result[0].start, 0);
         assert_eq!(result[0].end, 7);
-        assert_eq!(result[0].text, "Hello, ");
+        assert_eq!(result[0].text, None);
         // Replacement: "Rust"
         assert_eq!(result[1].start, 7);
         assert_eq!(result[1].end, 12);
-        assert_eq!(result[1].text, "Rust");
+        assert_eq!(result[1].text, Some("Rust".to_string()));
         // Last gap: "!"
         assert_eq!(result[2].start, 12);
         assert_eq!(result[2].end, 13);
-        assert_eq!(result[2].text, "!");
+        assert_eq!(result[2].text, None);
     }
 
     #[test]
@@ -187,19 +197,22 @@ mod tests {
             TextReplacement {
                 start: 4,
                 end: 9,
-                text: "slow".to_string(),
+                text: Some("slow".to_string()),
             },
             TextReplacement {
                 start: 10,
                 end: 15,
-                text: "green".to_string(),
+                text: Some("green".to_string()),
             },
         ];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
         assert_eq!(result.len(), 5);
         // Check that all parts concatenate to form expected result
-        let final_text: String = result.iter().map(|r| r.text.clone()).collect();
+        let final_text: String = result.iter().map(|r| match &r.text {
+            Some(text) => text.clone(),
+            None => source[r.start..r.end].to_string(),
+        }).collect();
         assert_eq!(final_text, "The slow green fox");
     }
 
@@ -210,18 +223,21 @@ mod tests {
             TextReplacement {
                 start: 1,
                 end: 3,
-                text: "XX".to_string(),
+                text: Some("XX".to_string()),
             },
             TextReplacement {
                 start: 3,
                 end: 5,
-                text: "YY".to_string(),
+                text: Some("YY".to_string()),
             },
         ];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
         assert_eq!(result.len(), 4);
-        let final_text: String = result.iter().map(|r| r.text.clone()).collect();
+        let final_text: String = result.iter().map(|r| match &r.text {
+            Some(text) => text.clone(),
+            None => source[r.start..r.end].to_string(),
+        }).collect();
         assert_eq!(final_text, "aXXYYf");
     }
 
@@ -232,12 +248,12 @@ mod tests {
             TextReplacement {
                 start: 0,
                 end: source.len(),
-                text: "replaced".to_string(),
+                text: Some("replaced".to_string()),
             },
         ];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, "replaced");
+        assert_eq!(result[0].text, Some("replaced".to_string()));
     }
 }
