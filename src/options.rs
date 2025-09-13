@@ -16,6 +16,20 @@ impl Default for UsesSectionStyle {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum SpaceOperation {
+    NoChange,
+    Before,
+    After,
+    BeforeAndAfter,
+}
+
+impl Default for SpaceOperation {
+    fn default() -> Self {
+        SpaceOperation::After
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum LineEnding {
     Auto,
     Crlf,
@@ -47,16 +61,16 @@ impl LineEnding {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TextChangeOptions {
-    pub space_after_comma: bool,
-    pub space_after_semi_colon: bool,
+    pub space_after_comma: SpaceOperation,
+    pub space_after_semi_colon: SpaceOperation,
     pub trim_trailing_whitespace: bool,
 }
 
 impl Default for TextChangeOptions {
     fn default() -> Self {
         TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
         }
     }
@@ -438,7 +452,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.text_changes.space_after_comma, true);
+        assert_eq!(options.text_changes.space_after_comma, SpaceOperation::After);
     }
 
     #[test]
@@ -450,7 +464,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.text_changes.space_after_comma, true);
+        assert_eq!(options.text_changes.space_after_comma, SpaceOperation::After);
     }
 
     #[test]
@@ -466,8 +480,8 @@ mod tests {
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
             text_changes: TextChangeOptions {
-                space_after_comma: false,
-                space_after_semi_colon: true,
+                space_after_comma: SpaceOperation::NoChange,
+                space_after_semi_colon: SpaceOperation::After,
                 trim_trailing_whitespace: true,
             },
         };
@@ -490,7 +504,7 @@ mod tests {
         );
         assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
-        assert_eq!(loaded_options.text_changes.space_after_comma, false);
+        assert_eq!(loaded_options.text_changes.space_after_comma, SpaceOperation::NoChange);
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -582,7 +596,7 @@ enable_uses_section = false
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.text_changes.space_after_comma, true);
+        assert_eq!(options.text_changes.space_after_comma, SpaceOperation::After);
     }
 
     #[test]
@@ -636,7 +650,7 @@ enable_procedure_section = true
 enable_text_transformations = true
 
 [text_changes]
-space_after_comma = true
+space_after_comma = "After"
 "#,
         )
         .unwrap();
@@ -663,7 +677,7 @@ enable_procedure_section = true
 enable_text_transformations = true
 
 [text_changes]
-space_after_comma = false
+space_after_comma = "NoChange"
 "#,
         )
         .unwrap();
@@ -690,7 +704,7 @@ enable_procedure_section = true
 enable_text_transformations = true
 
 [text_changes]
-space_after_comma = true
+space_after_comma = "After"
 "#,
         )
         .unwrap();

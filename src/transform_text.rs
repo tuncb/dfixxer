@@ -1,4 +1,4 @@
-use crate::options::TextChangeOptions;
+use crate::options::{SpaceOperation, TextChangeOptions};
 use crate::replacements::TextReplacement;
 
 /// Apply text transformations based on the given options to the replacements
@@ -26,6 +26,28 @@ pub fn apply_text_transformations(
         }
     }
     replacements
+}
+
+/// Helper function to determine if space should be added after a character
+fn should_add_space_after(operation: &SpaceOperation, next_char: Option<char>, target_char: char) -> bool {
+    match operation {
+        SpaceOperation::NoChange => false,
+        SpaceOperation::After => {
+            if let Some(next_ch) = next_char {
+                !next_ch.is_whitespace() && next_ch != target_char
+            } else {
+                false
+            }
+        }
+        SpaceOperation::Before => false, // Handled elsewhere
+        SpaceOperation::BeforeAndAfter => {
+            if let Some(next_ch) = next_char {
+                !next_ch.is_whitespace() && next_ch != target_char
+            } else {
+                false
+            }
+        }
+    }
 }
 
 /// Apply all text changes to a text string based on the given options
@@ -112,22 +134,14 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                     ',' => {
                         // Potential spacing insertion (only in code state)
                         push_char(',', &mut current_line, &mut result);
-                        if options.space_after_comma {
-                            if let Some(&next_ch) = chars.peek() {
-                                if !next_ch.is_whitespace() && next_ch != ',' {
-                                    push_char(' ', &mut current_line, &mut result);
-                                }
-                            }
+                        if should_add_space_after(&options.space_after_comma, chars.peek().copied(), ',') {
+                            push_char(' ', &mut current_line, &mut result);
                         }
                     }
                     ';' => {
                         push_char(';', &mut current_line, &mut result);
-                        if options.space_after_semi_colon {
-                            if let Some(&next_ch) = chars.peek() {
-                                if !next_ch.is_whitespace() && next_ch != ';' {
-                                    push_char(' ', &mut current_line, &mut result);
-                                }
-                            }
+                        if should_add_space_after(&options.space_after_semi_colon, chars.peek().copied(), ';') {
+                            push_char(' ', &mut current_line, &mut result);
                         }
                     }
                     '\n' | '\r' => {
@@ -220,8 +234,8 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
 
@@ -240,8 +254,8 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
 
@@ -274,8 +288,8 @@ mod tests {
             },
         ];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
 
@@ -304,8 +318,8 @@ mod tests {
             },
         ];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
 
@@ -322,8 +336,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_comma_only() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
@@ -334,8 +348,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_semicolon_only() {
         let options = TextChangeOptions {
-            space_after_comma: false,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::NoChange,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
@@ -346,8 +360,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_both_comma_and_semicolon() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
@@ -358,8 +372,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_neither() {
         let options = TextChangeOptions {
-            space_after_comma: false,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::NoChange,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
         let text = "a,b;c,d";
@@ -377,8 +391,8 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
 
@@ -397,8 +411,8 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
 
@@ -417,8 +431,8 @@ mod tests {
             is_final: true, // Final replacement should not be modified
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
 
@@ -431,8 +445,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_with_trim_trailing_whitespace() {
         let options = TextChangeOptions {
-            space_after_comma: false,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::NoChange,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: true,
         };
         let text = "Line 1   \nLine 2\t\t\nLine 3 ";
@@ -443,8 +457,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_combined_comma_and_trim() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: true,
         };
         let text = "a,b,c   \nd,e,f\t\t";
@@ -455,8 +469,8 @@ mod tests {
     #[test]
     fn test_apply_text_changes_all_options_enabled() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
         };
         let text = "a,b;c,d   \ne,f;g,h\t\t";
@@ -474,8 +488,8 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
         };
 
@@ -494,8 +508,8 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
         };
 
@@ -509,8 +523,8 @@ mod tests {
     #[test]
     fn test_escaped_quotes_in_string_literals() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         // Test escaped single quotes in Delphi/Pascal strings
@@ -523,8 +537,8 @@ mod tests {
     #[test]
     fn test_complex_escaped_quotes() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
         };
         // Multiple escaped quotes and code after
@@ -536,8 +550,8 @@ mod tests {
     #[test]
     fn test_unterminated_string_with_line_break() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         // Unterminated string that breaks at newline
@@ -550,8 +564,8 @@ mod tests {
     #[test]
     fn test_multiline_comments_with_spacing() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         // Test multiline brace comments
@@ -563,8 +577,8 @@ mod tests {
     #[test]
     fn test_multiline_paren_star_comments() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         // Test multiline (* *) comments
@@ -576,8 +590,8 @@ mod tests {
     #[test]
     fn test_trim_with_different_line_endings() {
         let options = TextChangeOptions {
-            space_after_comma: false,
-            space_after_semi_colon: false,
+            space_after_comma: SpaceOperation::NoChange,
+            space_after_semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: true,
         };
         // Test trimming with both LF and CRLF
@@ -589,8 +603,8 @@ mod tests {
     #[test]
     fn test_spacing_with_consecutive_punctuation() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         // Test that we don't add space before another comma/semicolon, but do add after
@@ -603,8 +617,8 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_string_literal() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "'a,b;c',x;y";
@@ -616,8 +630,8 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_brace_comment() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "{a,b;c},x;y";
@@ -628,8 +642,8 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_paren_star_comment() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "(*a,b;c*),x;y";
@@ -640,8 +654,8 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_line_comment() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "// a,b;c\nx,y;z";
@@ -653,8 +667,8 @@ mod tests {
     #[test]
     fn test_mixed_code_and_comments_and_strings() {
         let options = TextChangeOptions {
-            space_after_comma: true,
-            space_after_semi_colon: true,
+            space_after_comma: SpaceOperation::After,
+            space_after_semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
         };
         let text = "val:='a,b'; // c,d;e\n{ x,y;z } foo,bar;baz (* p,q;r *) qux,quux";
