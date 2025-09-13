@@ -28,8 +28,161 @@ pub fn apply_text_transformations(
     replacements
 }
 
+/// Helper function to determine if space should be added before a character/operator
+fn should_add_space_before(
+    operation: &SpaceOperation,
+    prev_char: Option<char>,
+    target_char: char,
+) -> bool {
+    match operation {
+        SpaceOperation::NoChange => false,
+        SpaceOperation::After => false, // Handled elsewhere
+        SpaceOperation::Before => {
+            if let Some(prev_ch) = prev_char {
+                !prev_ch.is_whitespace() && prev_ch != target_char
+            } else {
+                false
+            }
+        }
+        SpaceOperation::BeforeAndAfter => {
+            if let Some(prev_ch) = prev_char {
+                !prev_ch.is_whitespace() && prev_ch != target_char
+            } else {
+                false
+            }
+        }
+    }
+}
+
+/// Helper function to handle multi-character operators
+fn handle_operator(
+    current_char: char,
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+    operation: &SpaceOperation,
+    prev_char: Option<char>,
+    current_line: &mut String,
+    result: &mut String,
+    push_char: &impl Fn(char, &mut String, &mut String),
+) -> Option<String> {
+    // Check for multi-character operators starting with current_char
+    let next_char = chars.peek().copied();
+
+    match (current_char, next_char) {
+        // Two-character operators
+        ('<', Some('=')) => {
+            // '<=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, '<') {
+                push_char(' ', current_line, result);
+            }
+            push_char('<', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some("<=".to_string())
+        }
+        ('<', Some('>')) => {
+            // '<>' operator
+            chars.next(); // consume the '>'
+            if should_add_space_before(operation, prev_char, '<') {
+                push_char(' ', current_line, result);
+            }
+            push_char('<', current_line, result);
+            push_char('>', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '>') {
+                push_char(' ', current_line, result);
+            }
+            Some("<>".to_string())
+        }
+        ('>', Some('=')) => {
+            // '>=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, '>') {
+                push_char(' ', current_line, result);
+            }
+            push_char('>', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some(">=".to_string())
+        }
+        (':', Some('=')) => {
+            // ':=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, ':') {
+                push_char(' ', current_line, result);
+            }
+            push_char(':', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some(":=".to_string())
+        }
+        ('+', Some('=')) => {
+            // '+=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, '+') {
+                push_char(' ', current_line, result);
+            }
+            push_char('+', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some("+=".to_string())
+        }
+        ('-', Some('=')) => {
+            // '-=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, '-') {
+                push_char(' ', current_line, result);
+            }
+            push_char('-', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some("-=".to_string())
+        }
+        ('*', Some('=')) => {
+            // '*=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, '*') {
+                push_char(' ', current_line, result);
+            }
+            push_char('*', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some("*=".to_string())
+        }
+        ('/', Some('=')) => {
+            // '/=' operator
+            chars.next(); // consume the '='
+            if should_add_space_before(operation, prev_char, '/') {
+                push_char(' ', current_line, result);
+            }
+            push_char('/', current_line, result);
+            push_char('=', current_line, result);
+            if should_add_space_after(operation, chars.peek().copied(), '=') {
+                push_char(' ', current_line, result);
+            }
+            Some("/=".to_string())
+        }
+        _ => None, // Not a multi-character operator
+    }
+}
+
 /// Helper function to determine if space should be added after a character
-fn should_add_space_after(operation: &SpaceOperation, next_char: Option<char>, target_char: char) -> bool {
+fn should_add_space_after(
+    operation: &SpaceOperation,
+    next_char: Option<char>,
+    target_char: char,
+) -> bool {
     match operation {
         SpaceOperation::NoChange => false,
         SpaceOperation::After => {
@@ -67,6 +220,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
     let mut result = String::with_capacity(text.len());
     let mut state = State::Code;
     let mut chars = text.chars().peekable();
+    let mut prev_char: Option<char> = None;
 
     // For trimming we accumulate current line raw output, then on newline flush trimmed.
     let do_trim = options.trim_trailing_whitespace;
@@ -127,21 +281,137 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             push_char('/', &mut current_line, &mut result);
                             push_char(slash2, &mut current_line, &mut result);
                             state = State::LineComment;
+                        } else if let Some(handled) = handle_operator(ch, &mut chars, &options.assign_div, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '/=' handled by handle_operator
                         } else {
+                            // Single '/' division operator
+                            if should_add_space_before(&options.fdiv, prev_char, '/') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
                             push_char('/', &mut current_line, &mut result);
+                            if should_add_space_after(&options.fdiv, chars.peek().copied(), '/') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
                         }
                     }
                     ',' => {
-                        // Potential spacing insertion (only in code state)
+                        // Add space before comma if needed
+                        if should_add_space_before(&options.comma, prev_char, ',') {
+                            push_char(' ', &mut current_line, &mut result);
+                        }
+                        // Add the comma
                         push_char(',', &mut current_line, &mut result);
-                        if should_add_space_after(&options.space_after_comma, chars.peek().copied(), ',') {
+                        // Add space after comma if needed
+                        if should_add_space_after(&options.comma, chars.peek().copied(), ',') {
                             push_char(' ', &mut current_line, &mut result);
                         }
                     }
                     ';' => {
-                        push_char(';', &mut current_line, &mut result);
-                        if should_add_space_after(&options.space_after_semi_colon, chars.peek().copied(), ';') {
+                        // Add space before semicolon if needed
+                        if should_add_space_before(&options.semi_colon, prev_char, ';') {
                             push_char(' ', &mut current_line, &mut result);
+                        }
+                        // Add the semicolon
+                        push_char(';', &mut current_line, &mut result);
+                        // Add space after semicolon if needed
+                        if should_add_space_after(&options.semi_colon, chars.peek().copied(), ';') {
+                            push_char(' ', &mut current_line, &mut result);
+                        }
+                    }
+                    '<' => {
+                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.lte, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '<=' handled by handle_operator
+                        } else if let Some(_handled) = handle_operator(ch, &mut chars, &options.neq, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '<>' handled by handle_operator
+                        } else {
+                            // Single '<' operator
+                            if should_add_space_before(&options.lt, prev_char, '<') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char('<', &mut current_line, &mut result);
+                            if should_add_space_after(&options.lt, chars.peek().copied(), '<') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                        }
+                    }
+                    '=' => {
+                        // Single '=' operator
+                        if should_add_space_before(&options.eq, prev_char, '=') {
+                            push_char(' ', &mut current_line, &mut result);
+                        }
+                        push_char('=', &mut current_line, &mut result);
+                        if should_add_space_after(&options.eq, chars.peek().copied(), '=') {
+                            push_char(' ', &mut current_line, &mut result);
+                        }
+                    }
+                    '>' => {
+                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.gte, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '>=' handled by handle_operator
+                        } else {
+                            // Single '>' operator
+                            if should_add_space_before(&options.gt, prev_char, '>') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char('>', &mut current_line, &mut result);
+                            if should_add_space_after(&options.gt, chars.peek().copied(), '>') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                        }
+                    }
+                    '+' => {
+                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign_add, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '+=' handled by handle_operator
+                        } else {
+                            // Single '+' operator
+                            if should_add_space_before(&options.add, prev_char, '+') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char('+', &mut current_line, &mut result);
+                            if should_add_space_after(&options.add, chars.peek().copied(), '+') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                        }
+                    }
+                    '-' => {
+                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign_sub, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '-=' handled by handle_operator
+                        } else {
+                            // Single '-' operator
+                            if should_add_space_before(&options.sub, prev_char, '-') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char('-', &mut current_line, &mut result);
+                            if should_add_space_after(&options.sub, chars.peek().copied(), '-') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                        }
+                    }
+                    '*' => {
+                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign_mul, prev_char, &mut current_line, &mut result, &push_char) {
+                            // '*=' handled by handle_operator
+                        } else {
+                            // Single '*' operator
+                            if should_add_space_before(&options.mul, prev_char, '*') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char('*', &mut current_line, &mut result);
+                            if should_add_space_after(&options.mul, chars.peek().copied(), '*') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                        }
+                    }
+                    ':' => {
+                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign, prev_char, &mut current_line, &mut result, &push_char) {
+                            // ':=' handled by handle_operator
+                        } else {
+                            // Single ':' operator
+                            if should_add_space_before(&options.colon, prev_char, ':') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char(':', &mut current_line, &mut result);
+                            if should_add_space_after(&options.colon, chars.peek().copied(), ':') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
                         }
                     }
                     '\n' | '\r' => {
@@ -210,6 +480,9 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                 }
             }
         }
+
+        // Update previous character for next iteration
+        prev_char = Some(ch);
     }
 
     if do_trim && !current_line.is_empty() {
@@ -234,9 +507,10 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -254,9 +528,10 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -288,9 +563,10 @@ mod tests {
             },
         ];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -318,9 +594,10 @@ mod tests {
             },
         ];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -336,9 +613,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_comma_only() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -348,9 +626,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_semicolon_only() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::NoChange,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -360,9 +639,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_both_comma_and_semicolon() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -372,9 +652,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_neither() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::NoChange,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
@@ -391,9 +672,10 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -411,9 +693,10 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -431,9 +714,10 @@ mod tests {
             is_final: true, // Final replacement should not be modified
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -445,9 +729,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_with_trim_trailing_whitespace() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::NoChange,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
         let text = "Line 1   \nLine 2\t\t\nLine 3 ";
         let result = apply_text_changes(text, &options);
@@ -457,9 +742,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_combined_comma_and_trim() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
         let text = "a,b,c   \nd,e,f\t\t";
         let result = apply_text_changes(text, &options);
@@ -469,9 +755,10 @@ mod tests {
     #[test]
     fn test_apply_text_changes_all_options_enabled() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
         let text = "a,b;c,d   \ne,f;g,h\t\t";
         let result = apply_text_changes(text, &options);
@@ -488,9 +775,10 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -508,9 +796,10 @@ mod tests {
             is_final: false,
         }];
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
 
         let result = apply_text_transformations(source, replacements, &options);
@@ -523,9 +812,10 @@ mod tests {
     #[test]
     fn test_escaped_quotes_in_string_literals() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         // Test escaped single quotes in Delphi/Pascal strings
         let text = "s := 'It''s a test',x;y";
@@ -537,9 +827,10 @@ mod tests {
     #[test]
     fn test_complex_escaped_quotes() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         // Multiple escaped quotes and code after
         let text = "msg := 'Can''t say ''hello'', sorry',next";
@@ -550,9 +841,10 @@ mod tests {
     #[test]
     fn test_unterminated_string_with_line_break() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         // Unterminated string that breaks at newline
         let text = "s := 'unterminated\ncode,after;break";
@@ -564,9 +856,10 @@ mod tests {
     #[test]
     fn test_multiline_comments_with_spacing() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         // Test multiline brace comments
         let text = "{ multi\nline,comment;here }\ncode,after";
@@ -577,9 +870,10 @@ mod tests {
     #[test]
     fn test_multiline_paren_star_comments() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         // Test multiline (* *) comments
         let text = "(* multi\nline,comment;here *)\ncode,after";
@@ -590,9 +884,10 @@ mod tests {
     #[test]
     fn test_trim_with_different_line_endings() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::NoChange,
-            space_after_semi_colon: SpaceOperation::NoChange,
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
         // Test trimming with both LF and CRLF
         let text = "line1   \r\nline2\t\t\nline3   ";
@@ -603,9 +898,10 @@ mod tests {
     #[test]
     fn test_spacing_with_consecutive_punctuation() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         // Test that we don't add space before another comma/semicolon, but do add after
         let text = "a,,b;;c,;d";
@@ -617,9 +913,10 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_string_literal() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "'a,b;c',x;y";
         // Only commas/semicolons outside the quotes should be spaced.
@@ -630,9 +927,10 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_brace_comment() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "{a,b;c},x;y";
         let result = apply_text_changes(text, &options);
@@ -642,9 +940,10 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_paren_star_comment() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "(*a,b;c*),x;y";
         let result = apply_text_changes(text, &options);
@@ -654,9 +953,10 @@ mod tests {
     #[test]
     fn test_skip_spacing_inside_line_comment() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "// a,b;c\nx,y;z";
         let result = apply_text_changes(text, &options);
@@ -667,15 +967,231 @@ mod tests {
     #[test]
     fn test_mixed_code_and_comments_and_strings() {
         let options = TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
         let text = "val:='a,b'; // c,d;e\n{ x,y;z } foo,bar;baz (* p,q;r *) qux,quux";
         let result = apply_text_changes(text, &options);
         assert_eq!(
             result,
-            "val:='a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
+            "val := 'a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
         );
+    }
+
+    // Tests for new SpaceOperation variants
+    #[test]
+    fn test_space_before_comma() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::Before,
+            semi_colon: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a,b,c";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a ,b ,c");
+    }
+
+    #[test]
+    fn test_space_before_semicolon() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::Before,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a;b;c";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a ;b ;c");
+    }
+
+    #[test]
+    fn test_space_before_and_after_comma() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::BeforeAndAfter,
+            semi_colon: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a,b,c";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a , b , c");
+    }
+
+    #[test]
+    fn test_space_before_and_after_semicolon() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a;b;c";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a ; b ; c");
+    }
+
+    #[test]
+    fn test_space_before_doesnt_add_duplicate_space() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::Before,
+            semi_colon: SpaceOperation::Before,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Already has spaces before punctuation - should not add more
+        let text = "a ,b ;c";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a ,b ;c"); // No change because space already exists
+    }
+
+    #[test]
+    fn test_space_after_doesnt_add_duplicate_space() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Already has spaces after punctuation - should not add more
+        let text = "a, b; c";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a, b; c"); // No change because space already exists
+    }
+
+    #[test]
+    fn test_no_space_at_beginning_for_before_operation() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::Before,
+            semi_colon: SpaceOperation::Before,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Comma/semicolon at the beginning should not add space before
+        let text = ",a;b";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, ",a ;b"); // No space before first comma
+    }
+
+    #[test]
+    fn test_mixed_space_operations() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::Before,
+            semi_colon: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a,b;c,d";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a ,b ; c ,d");
+    }
+
+    // Tests for new operators
+    #[test]
+    fn test_assignment_operators() {
+        let options = TextChangeOptions {
+            assign: SpaceOperation::BeforeAndAfter,
+            assign_add: SpaceOperation::BeforeAndAfter,
+            assign_sub: SpaceOperation::BeforeAndAfter,
+            assign_mul: SpaceOperation::BeforeAndAfter,
+            assign_div: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a:=5+b+=c-=d*=e/=f";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a := 5 + b += c -= d *= e /= f");
+    }
+
+    #[test]
+    fn test_comparison_operators() {
+        let options = TextChangeOptions {
+            lt: SpaceOperation::BeforeAndAfter,
+            eq: SpaceOperation::BeforeAndAfter,
+            neq: SpaceOperation::BeforeAndAfter,
+            gt: SpaceOperation::BeforeAndAfter,
+            lte: SpaceOperation::BeforeAndAfter,
+            gte: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "if a<b=c<>d>e<=f>=g then";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "if a < b = c <> d > e <= f >= g then");
+    }
+
+    #[test]
+    fn test_arithmetic_operators() {
+        let options = TextChangeOptions {
+            add: SpaceOperation::BeforeAndAfter,
+            sub: SpaceOperation::BeforeAndAfter,
+            mul: SpaceOperation::BeforeAndAfter,
+            fdiv: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "result:=a+b-c*d/e";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "result := a + b - c * d / e");
+    }
+
+    #[test]
+    fn test_colon_operator() {
+        let options = TextChangeOptions {
+            colon: SpaceOperation::After,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "var x:Integer;y:String;z:Boolean";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "var x: Integer; y: String; z: Boolean");
+    }
+
+    #[test]
+    fn test_no_change_operators() {
+        let options = TextChangeOptions {
+            add: SpaceOperation::NoChange,
+            sub: SpaceOperation::NoChange,
+            mul: SpaceOperation::NoChange,
+            fdiv: SpaceOperation::NoChange,
+            eq: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a+b-c*d/e=f";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a+b-c*d/e=f"); // Should remain unchanged for these operators
+    }
+
+    #[test]
+    fn test_operators_with_comments_and_strings() {
+        let options = TextChangeOptions {
+            assign: SpaceOperation::BeforeAndAfter,
+            eq: SpaceOperation::BeforeAndAfter,
+            add: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "msg:='a:=b+c'; // Comment with := and + and =\nresult:=x=y+z";
+        let result = apply_text_changes(text, &options);
+        // Operators inside string and comments should not be spaced
+        assert_eq!(result, "msg := 'a:=b+c'; // Comment with := and + and =\nresult := x = y + z");
+    }
+
+    #[test]
+    fn test_consecutive_operators() {
+        let options = TextChangeOptions {
+            add: SpaceOperation::BeforeAndAfter,
+            sub: SpaceOperation::BeforeAndAfter,
+            eq: SpaceOperation::BeforeAndAfter,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "a++b--c==d";
+        let result = apply_text_changes(text, &options);
+        // Consecutive same operators should not have space between them (correct behavior)
+        assert_eq!(result, "a ++ b -- c == d");
     }
 }

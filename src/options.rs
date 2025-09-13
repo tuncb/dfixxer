@@ -61,16 +61,48 @@ impl LineEnding {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TextChangeOptions {
-    pub space_after_comma: SpaceOperation,
-    pub space_after_semi_colon: SpaceOperation,
+    pub comma: SpaceOperation,
+    pub semi_colon: SpaceOperation,
+    pub lt: SpaceOperation,                // '<'
+    pub eq: SpaceOperation,                // '='
+    pub neq: SpaceOperation,               // '<>'
+    pub gt: SpaceOperation,                // '>'
+    pub lte: SpaceOperation,               // '<='
+    pub gte: SpaceOperation,               // '>='
+    pub add: SpaceOperation,               // '+'
+    pub sub: SpaceOperation,               // '-'
+    pub mul: SpaceOperation,               // '*'
+    pub fdiv: SpaceOperation,              // '/'
+    pub assign: SpaceOperation,            // ':='
+    pub assign_add: SpaceOperation,        // '+='
+    pub assign_sub: SpaceOperation,        // '-='
+    pub assign_mul: SpaceOperation,        // '*='
+    pub assign_div: SpaceOperation,        // '/='
+    pub colon: SpaceOperation,             // ':'
     pub trim_trailing_whitespace: bool,
 }
 
 impl Default for TextChangeOptions {
     fn default() -> Self {
         TextChangeOptions {
-            space_after_comma: SpaceOperation::After,
-            space_after_semi_colon: SpaceOperation::After,
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::After,
+            lt: SpaceOperation::BeforeAndAfter,                // '<'
+            eq: SpaceOperation::BeforeAndAfter,                // '='
+            neq: SpaceOperation::BeforeAndAfter,               // '<>'
+            gt: SpaceOperation::BeforeAndAfter,                // '>'
+            lte: SpaceOperation::BeforeAndAfter,               // '<='
+            gte: SpaceOperation::BeforeAndAfter,               // '>='
+            add: SpaceOperation::BeforeAndAfter,               // '+'
+            sub: SpaceOperation::BeforeAndAfter,               // '-'
+            mul: SpaceOperation::BeforeAndAfter,               // '*'
+            fdiv: SpaceOperation::BeforeAndAfter,              // '/'
+            assign: SpaceOperation::BeforeAndAfter,            // ':='
+            assign_add: SpaceOperation::BeforeAndAfter,        // '+='
+            assign_sub: SpaceOperation::BeforeAndAfter,        // '-='
+            assign_mul: SpaceOperation::BeforeAndAfter,        // '*='
+            assign_div: SpaceOperation::BeforeAndAfter,        // '/='
+            colon: SpaceOperation::After,                      // ':'
             trim_trailing_whitespace: true,
         }
     }
@@ -452,7 +484,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.text_changes.space_after_comma, SpaceOperation::After);
+        assert_eq!(options.text_changes.comma, SpaceOperation::After);
     }
 
     #[test]
@@ -464,7 +496,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.text_changes.space_after_comma, SpaceOperation::After);
+        assert_eq!(options.text_changes.comma, SpaceOperation::After);
     }
 
     #[test]
@@ -480,9 +512,10 @@ mod tests {
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
             text_changes: TextChangeOptions {
-                space_after_comma: SpaceOperation::NoChange,
-                space_after_semi_colon: SpaceOperation::After,
+                comma: SpaceOperation::NoChange,
+                semi_colon: SpaceOperation::After,
                 trim_trailing_whitespace: true,
+                ..Default::default()
             },
         };
 
@@ -504,7 +537,7 @@ mod tests {
         );
         assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
-        assert_eq!(loaded_options.text_changes.space_after_comma, SpaceOperation::NoChange);
+        assert_eq!(loaded_options.text_changes.comma, SpaceOperation::NoChange);
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -596,7 +629,7 @@ enable_uses_section = false
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.text_changes.space_after_comma, SpaceOperation::After);
+        assert_eq!(options.text_changes.comma, SpaceOperation::After);
     }
 
     #[test]
@@ -650,7 +683,7 @@ enable_procedure_section = true
 enable_text_transformations = true
 
 [text_changes]
-space_after_comma = "After"
+comma = "After"
 "#,
         )
         .unwrap();
@@ -677,7 +710,7 @@ enable_procedure_section = true
 enable_text_transformations = true
 
 [text_changes]
-space_after_comma = "NoChange"
+comma = "NoChange"
 "#,
         )
         .unwrap();
@@ -704,7 +737,7 @@ enable_procedure_section = true
 enable_text_transformations = true
 
 [text_changes]
-space_after_comma = "After"
+comma = "After"
 "#,
         )
         .unwrap();
