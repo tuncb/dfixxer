@@ -5,19 +5,23 @@ use arguments::{Command, parse_args};
 mod options;
 use options::Options;
 mod replacements;
+mod transform_procedure_section;
 mod transform_single_keyword_sections;
+mod transform_text;
 mod transform_unit_program_section;
 mod transform_uses_section;
-mod transform_procedure_section;
 mod transformer_utility;
-use replacements::{TextReplacement, apply_replacements, print_replacements};
+use replacements::{
+    TextReplacement, fill_gaps_with_identity_replacements, merge_replacements, print_replacements,
+};
 mod parser;
 use parser::parse;
 
+use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
+use crate::transform_text::apply_text_transformations;
 use crate::transform_unit_program_section::transform_unit_program_section;
 use crate::transform_uses_section::transform_uses_section;
-use crate::transform_procedure_section::transform_procedure_section;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -92,7 +96,7 @@ fn process_file(
     let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
 
     // Time transformation
-    let replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
+    let mut replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
         parse_result
             .code_sections
             .iter()
@@ -133,6 +137,15 @@ fn process_file(
             .collect()
     });
 
+    // Apply text transformations if any are enabled
+    if options.transformations.enable_text_transformations {
+        replacements = timing.time_operation("Text transformations", || {
+            // Fill gaps to get all text as replacements, then apply text transformations
+            let all_replacements = fill_gaps_with_identity_replacements(&source, replacements);
+            apply_text_transformations(&source, all_replacements, &options.text_changes)
+        });
+    }
+
     Ok((source, replacements))
 }
 
@@ -153,7 +166,7 @@ fn run() -> Result<i32, DFixxerError> {
             // Time applying replacements
             if !replacements.is_empty() {
                 timing.time_operation_result("Applying replacements", || {
-                    apply_replacements(&arguments.filename, &source, replacements)
+                    merge_replacements(&arguments.filename, &source, replacements)
                 })?;
             }
 
@@ -176,8 +189,9 @@ fn run() -> Result<i32, DFixxerError> {
             // Log the timing summary
             timing.log_summary();
 
-            // Return the number of replacements as exit code
-            Ok(replacements.len() as i32)
+            // Return the number of non-identity replacements as exit code
+            let non_identity_count = replacements.iter().filter(|r| r.text.is_some()).count();
+            Ok(non_identity_count as i32)
         }
         Command::InitConfig => {
             println!("Initializing configuration...");

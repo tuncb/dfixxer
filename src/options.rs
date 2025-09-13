@@ -46,11 +46,30 @@ impl LineEnding {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct TextChangeOptions {
+    pub space_after_comma: bool,
+    pub space_after_semi_colon: bool,
+    pub trim_trailing_whitespace: bool,
+}
+
+impl Default for TextChangeOptions {
+    fn default() -> Self {
+        TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: true,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TransformationOptions {
     pub enable_uses_section: bool,
     pub enable_unit_program_section: bool,
     pub enable_single_keyword_sections: bool,
     pub enable_procedure_section: bool,
+    pub enable_text_transformations: bool,
 }
 
 impl Default for TransformationOptions {
@@ -60,6 +79,7 @@ impl Default for TransformationOptions {
             enable_unit_program_section: true,
             enable_single_keyword_sections: true,
             enable_procedure_section: true,
+            enable_text_transformations: true,
         }
     }
 }
@@ -73,6 +93,7 @@ pub struct Options {
     pub module_names_to_update: Vec<String>,
     pub line_ending: LineEnding,
     pub transformations: TransformationOptions,
+    pub text_changes: TextChangeOptions,
 }
 
 impl Default for Options {
@@ -343,6 +364,7 @@ impl Default for Options {
             ],
             line_ending: LineEnding::Auto,
             transformations: TransformationOptions::default(),
+            text_changes: TextChangeOptions::default(),
         }
     }
 }
@@ -416,6 +438,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.text_changes.space_after_comma, true);
     }
 
     #[test]
@@ -427,6 +450,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.text_changes.space_after_comma, true);
     }
 
     #[test]
@@ -441,6 +465,11 @@ mod tests {
             module_names_to_update: Vec::new(),
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
+            text_changes: TextChangeOptions {
+                space_after_comma: false,
+                space_after_semi_colon: true,
+                trim_trailing_whitespace: true,
+            },
         };
 
         // Save options
@@ -461,6 +490,7 @@ mod tests {
         );
         assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
+        assert_eq!(loaded_options.text_changes.space_after_comma, false);
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -472,11 +502,15 @@ mod tests {
         let file_path = temp_path.join("partial_config.toml");
 
         // Create a TOML file with only some fields set
-        fs::write(&file_path, r#"
+        fs::write(
+            &file_path,
+            r#"
 # Partial config file with only indentation and line_ending set
 indentation = "    "
 line_ending = "Lf"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         // This should now parse successfully using defaults for missing fields
         let options = Options::load_from_file(&file_path).unwrap();
@@ -504,9 +538,18 @@ line_ending = "Lf"
         let options = Options::load_from_file(&file_path).unwrap();
         let default_options = Options::default();
         assert_eq!(options.indentation, default_options.indentation);
-        assert_eq!(options.uses_section_style, default_options.uses_section_style);
-        assert_eq!(options.override_sorting_order, default_options.override_sorting_order);
-        assert_eq!(options.module_names_to_update.len(), default_options.module_names_to_update.len());
+        assert_eq!(
+            options.uses_section_style,
+            default_options.uses_section_style
+        );
+        assert_eq!(
+            options.override_sorting_order,
+            default_options.override_sorting_order
+        );
+        assert_eq!(
+            options.module_names_to_update.len(),
+            default_options.module_names_to_update.len()
+        );
         assert_eq!(options.line_ending, default_options.line_ending);
 
         // Clean up
@@ -520,24 +563,26 @@ line_ending = "Lf"
         let file_path = temp_path.join("partial_transformations_config.toml");
 
         // Create a TOML file with partial transformations section
-        fs::write(&file_path, r#"
+        fs::write(
+            &file_path,
+            r#"
 indentation = "  "
 
 [transformations]
 enable_uses_section = false
 # Other transformation options should use defaults
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.transformations.enable_uses_section, false); // From file
-        assert_eq!(options.transformations.enable_unit_program_section, true); // Default
-        assert_eq!(options.transformations.enable_single_keyword_sections, true); // Default
-        assert_eq!(options.transformations.enable_procedure_section, true); // Default
-
-        // Clean up
-        fs::remove_file(&file_path).ok();
-        fs::remove_dir(&temp_path).ok();
+        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert!(!options.module_names_to_update.is_empty());
+        assert_eq!(options.module_names_to_update.len(), 258);
+        assert_eq!(options.line_ending, LineEnding::Auto);
+        assert_eq!(options.text_changes.space_after_comma, true);
     }
 
     #[test]
@@ -588,6 +633,10 @@ enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+[text_changes]
+space_after_comma = true
 "#,
         )
         .unwrap();
@@ -611,6 +660,10 @@ enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+[text_changes]
+space_after_comma = false
 "#,
         )
         .unwrap();
@@ -634,6 +687,10 @@ enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+[text_changes]
+space_after_comma = true
 "#,
         )
         .unwrap();

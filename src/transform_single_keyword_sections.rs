@@ -1,7 +1,9 @@
 use crate::options::Options;
 use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
-use crate::transformer_utility::{adjust_replacement_for_line_position, create_text_replacement_if_different};
+use crate::transformer_utility::{
+    adjust_replacement_for_line_position, create_text_replacement_if_different,
+};
 
 /// Transform a single keyword section to lowercase if needed
 pub fn transform_single_keyword_section(
@@ -27,12 +29,8 @@ pub fn transform_single_keyword_section(
     }
 
     // Use transformer utility to handle line positioning
-    let (replacement_start, replacement_text) = adjust_replacement_for_line_position(
-        source,
-        keyword_start,
-        lowercase_keyword,
-        options,
-    );
+    let (replacement_start, replacement_text) =
+        adjust_replacement_for_line_position(source, keyword_start, lowercase_keyword, options);
 
     // Create replacement if the text is different
     create_text_replacement_if_different(
@@ -40,6 +38,7 @@ pub fn transform_single_keyword_section(
         replacement_start,
         keyword_end,
         replacement_text,
+        false,
     )
 }
 
@@ -83,7 +82,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 9);
-        assert_eq!(replacement.text, "interface");
+        assert_eq!(replacement.text, Some("interface".to_string()));
     }
 
     #[test]
@@ -98,7 +97,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 14);
-        assert_eq!(replacement.text, "implementation");
+        assert_eq!(replacement.text, Some("implementation".to_string()));
     }
 
     #[test]
@@ -124,7 +123,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0); // Should start at beginning of line (removes whitespace)
         assert_eq!(replacement.end, 14);
-        assert_eq!(replacement.text, "finalization");
+        assert_eq!(replacement.text, Some("finalization".to_string()));
     }
 
     #[test]
@@ -139,7 +138,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 9); // Should start at original position
         assert_eq!(replacement.end, 18);
-        assert_eq!(replacement.text, "\ninterface"); // Should have newline prepended
+        assert_eq!(replacement.text, Some("\ninterface".to_string())); // Should have newline prepended
     }
 
     #[test]
