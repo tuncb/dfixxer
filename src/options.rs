@@ -63,22 +63,23 @@ impl LineEnding {
 pub struct TextChangeOptions {
     pub comma: SpaceOperation,
     pub semi_colon: SpaceOperation,
-    pub lt: SpaceOperation,                // '<'
-    pub eq: SpaceOperation,                // '='
-    pub neq: SpaceOperation,               // '<>'
-    pub gt: SpaceOperation,                // '>'
-    pub lte: SpaceOperation,               // '<='
-    pub gte: SpaceOperation,               // '>='
-    pub add: SpaceOperation,               // '+'
-    pub sub: SpaceOperation,               // '-'
-    pub mul: SpaceOperation,               // '*'
-    pub fdiv: SpaceOperation,              // '/'
-    pub assign: SpaceOperation,            // ':='
-    pub assign_add: SpaceOperation,        // '+='
-    pub assign_sub: SpaceOperation,        // '-='
-    pub assign_mul: SpaceOperation,        // '*='
-    pub assign_div: SpaceOperation,        // '/='
-    pub colon: SpaceOperation,             // ':'
+    pub lt: SpaceOperation,            // '<'
+    pub eq: SpaceOperation,            // '='
+    pub neq: SpaceOperation,           // '<>'
+    pub gt: SpaceOperation,            // '>'
+    pub lte: SpaceOperation,           // '<='
+    pub gte: SpaceOperation,           // '>='
+    pub add: SpaceOperation,           // '+'
+    pub sub: SpaceOperation,           // '-'
+    pub mul: SpaceOperation,           // '*'
+    pub fdiv: SpaceOperation,          // '/'
+    pub assign: SpaceOperation,        // ':='
+    pub assign_add: SpaceOperation,    // '+='
+    pub assign_sub: SpaceOperation,    // '-='
+    pub assign_mul: SpaceOperation,    // '*='
+    pub assign_div: SpaceOperation,    // '/='
+    pub colon: SpaceOperation,         // ':'
+    pub colon_numeric_exception: bool, // Skip spacing for ':' when numbers before and after
     pub trim_trailing_whitespace: bool,
 }
 
@@ -87,22 +88,23 @@ impl Default for TextChangeOptions {
         TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
-            lt: SpaceOperation::BeforeAndAfter,                // '<'
-            eq: SpaceOperation::BeforeAndAfter,                // '='
-            neq: SpaceOperation::BeforeAndAfter,               // '<>'
-            gt: SpaceOperation::BeforeAndAfter,                // '>'
-            lte: SpaceOperation::BeforeAndAfter,               // '<='
-            gte: SpaceOperation::BeforeAndAfter,               // '>='
-            add: SpaceOperation::BeforeAndAfter,               // '+'
-            sub: SpaceOperation::BeforeAndAfter,               // '-'
-            mul: SpaceOperation::BeforeAndAfter,               // '*'
-            fdiv: SpaceOperation::BeforeAndAfter,              // '/'
-            assign: SpaceOperation::BeforeAndAfter,            // ':='
-            assign_add: SpaceOperation::BeforeAndAfter,        // '+='
-            assign_sub: SpaceOperation::BeforeAndAfter,        // '-='
-            assign_mul: SpaceOperation::BeforeAndAfter,        // '*='
-            assign_div: SpaceOperation::BeforeAndAfter,        // '/='
-            colon: SpaceOperation::After,                      // ':'
+            lt: SpaceOperation::BeforeAndAfter,         // '<'
+            eq: SpaceOperation::BeforeAndAfter,         // '='
+            neq: SpaceOperation::BeforeAndAfter,        // '<>'
+            gt: SpaceOperation::BeforeAndAfter,         // '>'
+            lte: SpaceOperation::BeforeAndAfter,        // '<='
+            gte: SpaceOperation::BeforeAndAfter,        // '>='
+            add: SpaceOperation::BeforeAndAfter,        // '+'
+            sub: SpaceOperation::BeforeAndAfter,        // '-'
+            mul: SpaceOperation::BeforeAndAfter,        // '*'
+            fdiv: SpaceOperation::BeforeAndAfter,       // '/'
+            assign: SpaceOperation::BeforeAndAfter,     // ':='
+            assign_add: SpaceOperation::BeforeAndAfter, // '+='
+            assign_sub: SpaceOperation::BeforeAndAfter, // '-='
+            assign_mul: SpaceOperation::BeforeAndAfter, // '*='
+            assign_div: SpaceOperation::BeforeAndAfter, // '/='
+            colon: SpaceOperation::After,               // ':'
+            colon_numeric_exception: true, // Skip spacing for ':' when numbers before and after
             trim_trailing_whitespace: true,
         }
     }

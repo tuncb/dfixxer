@@ -74,5 +74,5 @@ begin
 
   WriteLn('Sum: ', CalculateSum(1, 2, 3));
   ProcessData('John', 'Doe', '123 Main St', 25, 12345);
-  WriteLn('Maximum: ', FindMaximum(1.5, 2.7, 3.1, 2.9):0:2);
+  WriteLn('Maximum: ', FindMaximum(1.5, 2.7, 3.1, 2.9): 0:2);
 end.

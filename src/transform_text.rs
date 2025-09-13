@@ -203,6 +203,27 @@ fn should_add_space_after(
     }
 }
 
+/// Helper function to check if a character is numeric (digit)
+fn is_numeric_char(ch: char) -> bool {
+    ch.is_ascii_digit()
+}
+
+/// Helper function to check if colon spacing should be skipped due to numeric exception
+fn should_skip_colon_spacing(
+    enable_exception: bool,
+    prev_char: Option<char>,
+    next_char: Option<char>,
+) -> bool {
+    if !enable_exception {
+        return false;
+    }
+
+    match (prev_char, next_char) {
+        (Some(prev), Some(next)) => is_numeric_char(prev) && is_numeric_char(next),
+        _ => false,
+    }
+}
+
 /// Apply all text changes to a text string based on the given options
 fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
     // State machine to skip Delphi string literals and comments for spacing insertion.
@@ -281,7 +302,15 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             push_char('/', &mut current_line, &mut result);
                             push_char(slash2, &mut current_line, &mut result);
                             state = State::LineComment;
-                        } else if let Some(handled) = handle_operator(ch, &mut chars, &options.assign_div, prev_char, &mut current_line, &mut result, &push_char) {
+                        } else if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.assign_div,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '/=' handled by handle_operator
                         } else {
                             // Single '/' division operator
@@ -319,9 +348,25 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                         }
                     }
                     '<' => {
-                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.lte, prev_char, &mut current_line, &mut result, &push_char) {
+                        if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.lte,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '<=' handled by handle_operator
-                        } else if let Some(_handled) = handle_operator(ch, &mut chars, &options.neq, prev_char, &mut current_line, &mut result, &push_char) {
+                        } else if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.neq,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '<>' handled by handle_operator
                         } else {
                             // Single '<' operator
@@ -345,7 +390,15 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                         }
                     }
                     '>' => {
-                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.gte, prev_char, &mut current_line, &mut result, &push_char) {
+                        if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.gte,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '>=' handled by handle_operator
                         } else {
                             // Single '>' operator
@@ -359,7 +412,15 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                         }
                     }
                     '+' => {
-                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign_add, prev_char, &mut current_line, &mut result, &push_char) {
+                        if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.assign_add,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '+=' handled by handle_operator
                         } else {
                             // Single '+' operator
@@ -373,7 +434,15 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                         }
                     }
                     '-' => {
-                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign_sub, prev_char, &mut current_line, &mut result, &push_char) {
+                        if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.assign_sub,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '-=' handled by handle_operator
                         } else {
                             // Single '-' operator
@@ -387,7 +456,15 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                         }
                     }
                     '*' => {
-                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign_mul, prev_char, &mut current_line, &mut result, &push_char) {
+                        if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.assign_mul,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // '*=' handled by handle_operator
                         } else {
                             // Single '*' operator
@@ -401,15 +478,38 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                         }
                     }
                     ':' => {
-                        if let Some(_handled) = handle_operator(ch, &mut chars, &options.assign, prev_char, &mut current_line, &mut result, &push_char) {
+                        if let Some(_handled) = handle_operator(
+                            ch,
+                            &mut chars,
+                            &options.assign,
+                            prev_char,
+                            &mut current_line,
+                            &mut result,
+                            &push_char,
+                        ) {
                             // ':=' handled by handle_operator
                         } else {
                             // Single ':' operator
-                            if should_add_space_before(&options.colon, prev_char, ':') {
+                            // Check if we should skip spacing due to numeric exception (e.g., time format like "12:34")
+                            let skip_spacing = should_skip_colon_spacing(
+                                options.colon_numeric_exception,
+                                prev_char,
+                                chars.peek().copied(),
+                            );
+
+                            if !skip_spacing
+                                && should_add_space_before(&options.colon, prev_char, ':')
+                            {
                                 push_char(' ', &mut current_line, &mut result);
                             }
                             push_char(':', &mut current_line, &mut result);
-                            if should_add_space_after(&options.colon, chars.peek().copied(), ':') {
+                            if !skip_spacing
+                                && should_add_space_after(
+                                    &options.colon,
+                                    chars.peek().copied(),
+                                    ':',
+                                )
+                            {
                                 push_char(' ', &mut current_line, &mut result);
                             }
                         }
@@ -1177,7 +1277,10 @@ mod tests {
         let text = "msg:='a:=b+c'; // Comment with := and + and =\nresult:=x=y+z";
         let result = apply_text_changes(text, &options);
         // Operators inside string and comments should not be spaced
-        assert_eq!(result, "msg := 'a:=b+c'; // Comment with := and + and =\nresult := x = y + z");
+        assert_eq!(
+            result,
+            "msg := 'a:=b+c'; // Comment with := and + and =\nresult := x = y + z"
+        );
     }
 
     #[test]
@@ -1193,5 +1296,91 @@ mod tests {
         let result = apply_text_changes(text, &options);
         // Consecutive same operators should not have space between them (correct behavior)
         assert_eq!(result, "a ++ b -- c == d");
+    }
+
+    // Tests for colon numeric exception
+    #[test]
+    fn test_colon_numeric_exception_enabled() {
+        let options = TextChangeOptions {
+            colon: SpaceOperation::BeforeAndAfter,
+            colon_numeric_exception: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Time format - should not have spaces when numeric exception is enabled
+        let text = "time := 12:34:56;";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "time := 12:34:56;");
+    }
+
+    #[test]
+    fn test_colon_numeric_exception_disabled() {
+        let options = TextChangeOptions {
+            colon: SpaceOperation::BeforeAndAfter,
+            colon_numeric_exception: false,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // When exception is disabled, spaces should be added around all colons
+        let text = "time := 12:34:56;";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "time := 12 : 34 : 56;");
+    }
+
+    #[test]
+    fn test_colon_mixed_numeric_and_non_numeric() {
+        let options = TextChangeOptions {
+            colon: SpaceOperation::BeforeAndAfter,
+            colon_numeric_exception: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Mix of numeric (no space) and non-numeric (with space) colons
+        let text = "var x: Integer; time := 12:34;";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "var x : Integer; time := 12:34;");
+    }
+
+    #[test]
+    fn test_colon_numeric_exception_with_assignment() {
+        let options = TextChangeOptions {
+            assign: SpaceOperation::BeforeAndAfter,
+            colon: SpaceOperation::BeforeAndAfter,
+            colon_numeric_exception: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Ensure ':=' assignment is handled separately from single ':'
+        let text = "time:=12:34; x:Integer;";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "time := 12:34; x : Integer;");
+    }
+
+    #[test]
+    fn test_colon_numeric_exception_edge_cases() {
+        let options = TextChangeOptions {
+            colon: SpaceOperation::BeforeAndAfter,
+            colon_numeric_exception: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Test edge cases: colon at start, end, and with non-digits
+        let text = ":start x:y 3:z end: 12:34";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, ": start x : y 3 : z end : 12:34");
+    }
+
+    #[test]
+    fn test_colon_numeric_exception_only_after_operation() {
+        let options = TextChangeOptions {
+            colon: SpaceOperation::After,
+            colon_numeric_exception: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        // Test with only 'After' spacing - numeric exception should still work
+        let text = "x:Integer; time := 12:34;";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "x: Integer; time := 12:34;");
     }
 }
