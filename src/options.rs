@@ -46,11 +46,26 @@ impl LineEnding {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct TextChangeOptions {
+    pub space_after_comma: bool,
+}
+
+impl Default for TextChangeOptions {
+    fn default() -> Self {
+        TextChangeOptions {
+            space_after_comma: true,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TransformationOptions {
     pub enable_uses_section: bool,
     pub enable_unit_program_section: bool,
     pub enable_single_keyword_sections: bool,
     pub enable_procedure_section: bool,
+    pub enable_text_transformations: bool,
 }
 
 impl Default for TransformationOptions {
@@ -60,6 +75,7 @@ impl Default for TransformationOptions {
             enable_unit_program_section: true,
             enable_single_keyword_sections: true,
             enable_procedure_section: true,
+            enable_text_transformations: true,
         }
     }
 }
@@ -73,7 +89,7 @@ pub struct Options {
     pub module_names_to_update: Vec<String>,
     pub line_ending: LineEnding,
     pub transformations: TransformationOptions,
-    pub space_after_comma: bool,
+    pub text_changes: TextChangeOptions,
 }
 
 impl Default for Options {
@@ -344,7 +360,7 @@ impl Default for Options {
             ],
             line_ending: LineEnding::Auto,
             transformations: TransformationOptions::default(),
-            space_after_comma: true,
+            text_changes: TextChangeOptions::default(),
         }
     }
 }
@@ -418,7 +434,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.space_after_comma, true);
+        assert_eq!(options.text_changes.space_after_comma, true);
     }
 
     #[test]
@@ -430,7 +446,7 @@ mod tests {
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.space_after_comma, true);
+        assert_eq!(options.text_changes.space_after_comma, true);
     }
 
     #[test]
@@ -445,7 +461,9 @@ mod tests {
             module_names_to_update: Vec::new(),
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
-            space_after_comma: false,
+            text_changes: TextChangeOptions {
+                space_after_comma: false,
+            },
         };
 
         // Save options
@@ -466,7 +484,7 @@ mod tests {
         );
         assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
-        assert_eq!(loaded_options.space_after_comma, false);
+        assert_eq!(loaded_options.text_changes.space_after_comma, false);
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -558,7 +576,7 @@ enable_uses_section = false
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
-        assert_eq!(options.space_after_comma, true);
+        assert_eq!(options.text_changes.space_after_comma, true);
     }
 
     #[test]
@@ -603,13 +621,16 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Auto"
-space_after_comma = true
 
 [transformations]
 enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+[text_changes]
+space_after_comma = true
 "#,
         )
         .unwrap();
@@ -627,13 +648,16 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Lf"
-space_after_comma = false
 
 [transformations]
 enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+[text_changes]
+space_after_comma = false
 "#,
         )
         .unwrap();
@@ -651,13 +675,16 @@ uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
 line_ending = "Crlf"
-space_after_comma = true
 
 [transformations]
 enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+[text_changes]
+space_after_comma = true
 "#,
         )
         .unwrap();

@@ -138,7 +138,7 @@ fn process_file(
     });
 
     // Apply space_after_comma transformation if enabled
-    if options.space_after_comma {
+    if options.text_changes.space_after_comma {
         replacements = timing.time_operation("Space after comma", || {
             // Fill gaps to get all text as replacements, then apply comma spacing
             let all_replacements = fill_gaps_with_identity_replacements(&source, replacements);
