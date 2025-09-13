@@ -49,22 +49,24 @@ pub fn adjust_replacement_for_line_position(
     (replacement_start, replacement_text)
 }
 
-/// Create a TextReplacement if the replacement text differs from the original
+/// Create a TextReplacement if the replacement text differs from the original, with custom is_final flag
 pub fn create_text_replacement_if_different(
     source: &str,
     replacement_start: usize,
     replacement_end: usize,
     replacement_text: String,
+    is_final: bool,
 ) -> Option<TextReplacement> {
     let original_text = &source[replacement_start..replacement_end];
     if replacement_text == original_text {
         return None;
     }
-    
+
     Some(TextReplacement {
         start: replacement_start,
         end: replacement_end,
         text: Some(replacement_text),
+        is_final,
     })
 }
 
@@ -103,14 +105,14 @@ mod tests {
         let source = "  keyword something;";
         let options = make_options(LineEnding::Lf);
         let replacement_text = "keyword formatted;".to_string();
-        
+
         let (start, text) = adjust_replacement_for_line_position(
-            source, 
+            source,
             2, // keyword starts at position 2
-            replacement_text, 
-            &options
+            replacement_text,
+            &options,
         );
-        
+
         assert_eq!(start, 0); // Should start at beginning of line
         assert_eq!(text, "keyword formatted;"); // Text unchanged
     }
@@ -120,14 +122,14 @@ mod tests {
         let source = "otherkeyword something;";
         let options = make_options(LineEnding::Lf);
         let replacement_text = "keyword formatted;".to_string();
-        
+
         let (start, text) = adjust_replacement_for_line_position(
-            source, 
+            source,
             5, // section starts at position 5
-            replacement_text, 
-            &options
+            replacement_text,
+            &options,
         );
-        
+
         assert_eq!(start, 5); // Should start at original position
         assert_eq!(text, "\nkeyword formatted;"); // Text should have newline prepended
     }
@@ -137,14 +139,14 @@ mod tests {
         let source = "keyword something;";
         let options = make_options(LineEnding::Lf);
         let replacement_text = "keyword formatted;".to_string();
-        
+
         let (start, text) = adjust_replacement_for_line_position(
-            source, 
+            source,
             0, // keyword starts at beginning
-            replacement_text, 
-            &options
+            replacement_text,
+            &options,
         );
-        
+
         assert_eq!(start, 0); // Should start at beginning
         assert_eq!(text, "keyword formatted;"); // Text unchanged
     }
@@ -153,10 +155,11 @@ mod tests {
     fn test_create_text_replacement_if_different_same_text() {
         let source = "original text";
         let result = create_text_replacement_if_different(
-            source, 
-            0, 
-            source.len(), 
-            "original text".to_string()
+            source,
+            0,
+            source.len(),
+            "original text".to_string(),
+            false,
         );
         assert!(result.is_none());
     }
@@ -164,16 +167,13 @@ mod tests {
     #[test]
     fn test_create_text_replacement_if_different_different_text() {
         let source = "original text";
-        let result = create_text_replacement_if_different(
-            source, 
-            0, 
-            source.len(), 
-            "new text".to_string()
-        );
+        let result =
+            create_text_replacement_if_different(source, 0, source.len(), "new text".to_string(), false);
         assert!(result.is_some());
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 13);
         assert_eq!(replacement.text, Some("new text".to_string()));
+        assert_eq!(replacement.is_final, false);
     }
 }

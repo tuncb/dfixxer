@@ -1,7 +1,9 @@
 use crate::options::Options;
 use crate::parser::{CodeSection, Kind};
 use crate::replacements::TextReplacement;
-use crate::transformer_utility::{adjust_replacement_for_line_position, create_text_replacement_if_different};
+use crate::transformer_utility::{
+    adjust_replacement_for_line_position, create_text_replacement_if_different,
+};
 use log::warn;
 
 // Formats the replacement text for a uses section given the modules and options.
@@ -86,7 +88,6 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     prioritized.into_iter().chain(rest.into_iter()).collect()
 }
 
-
 /// Transform a parser::CodeSection to TextReplacement (only for uses sections)
 /// Skips code sections that are not uses sections or contain comments or preprocessor nodes
 pub fn transform_uses_section(
@@ -153,12 +154,13 @@ pub fn transform_uses_section(
         options,
     );
 
-    // Create the text replacement if different from original
+    // Create the text replacement if different from original, marked as final
     create_text_replacement_if_different(
         source,
         replacement_start,
         semicolon_end_byte,
         replacement_text,
+        true, // Mark uses section replacements as final
     )
 }
 
@@ -297,5 +299,4 @@ mod tests {
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
     }
-
 }

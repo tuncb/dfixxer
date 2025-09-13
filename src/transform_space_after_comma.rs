@@ -6,6 +6,11 @@ pub fn add_spaces_after_commas(
     mut replacements: Vec<TextReplacement>,
 ) -> Vec<TextReplacement> {
     for replacement in &mut replacements {
+        // Skip final replacements that shouldn't be modified further
+        if replacement.is_final {
+            continue;
+        }
+
         if let Some(ref mut text) = replacement.text {
             *text = add_spaces_to_text(text);
         } else {
@@ -104,6 +109,7 @@ mod tests {
                 start: 0,
                 end: 11,
                 text: None, // Identity replacement
+                is_final: false,
             }
         ];
 
@@ -120,6 +126,7 @@ mod tests {
                 start: 0,
                 end: 8,
                 text: Some("A,B,C".to_string()),
+                is_final: false,
             }
         ];
 
@@ -136,16 +143,19 @@ mod tests {
                 start: 0,
                 end: 11,
                 text: None, // Identity replacement that needs modification
+                is_final: false,
             },
             TextReplacement {
                 start: 11,
                 end: 15,
                 text: Some(" and ".to_string()), // Regular replacement, no commas
+                is_final: false,
             },
             TextReplacement {
                 start: 15,
                 end: 23,
                 text: Some("Baz,Qux".to_string()), // Regular replacement with comma
+                is_final: false,
             }
         ];
 
@@ -154,5 +164,33 @@ mod tests {
         assert_eq!(result[0].text, Some("Hello, World".to_string()));
         assert_eq!(result[1].text, Some(" and ".to_string()));
         assert_eq!(result[2].text, Some("Baz, Qux".to_string()));
+    }
+
+    #[test]
+    fn test_add_spaces_after_commas_skips_final_replacements() {
+        let source = "Hello,World and Foo,Bar";
+        let replacements = vec![
+            TextReplacement {
+                start: 0,
+                end: 11,
+                text: Some("uses,System".to_string()), // Final replacement (uses section)
+                is_final: true,
+            },
+            TextReplacement {
+                start: 11,
+                end: 23,
+                text: Some(" test,code".to_string()), // Regular replacement
+                is_final: false,
+            }
+        ];
+
+        let result = add_spaces_after_commas(source, replacements);
+        assert_eq!(result.len(), 2);
+        // Final replacement should be unchanged
+        assert_eq!(result[0].text, Some("uses,System".to_string()));
+        assert_eq!(result[0].is_final, true);
+        // Regular replacement should have spaces added
+        assert_eq!(result[1].text, Some(" test, code".to_string()));
+        assert_eq!(result[1].is_final, false);
     }
 }
