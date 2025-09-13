@@ -139,65 +139,60 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                 }
             }
             State::StringLiteral => {
-                push_char(ch, &mut current_line, &mut result);
-                if ch == '\'' {
-                    // Delphi doubles '' inside a string to escape a single quote.
-                    if let Some('\'') = chars.peek().copied() {
-                        // escaped quote, consume and add it
-                        let q = chars.next().unwrap();
-                        push_char(q, &mut current_line, &mut result);
-                    } else {
-                        state = State::Code;
-                    }
-                }
                 if ch == '\n' || ch == '\r' {
-                    // unterminated string line break: treat as code afterwards
+                    // Unterminated string at line break: exit string state
                     flush_line_ending(ch, &mut current_line, &mut result);
                     state = State::Code;
+                } else {
+                    push_char(ch, &mut current_line, &mut result);
+                    if ch == '\'' {
+                        // Delphi/Pascal doubles '' inside a string to escape a single quote.
+                        if let Some('\'') = chars.peek().copied() {
+                            // This is an escaped quote, consume the second quote and stay in string
+                            let escaped_quote = chars.next().unwrap();
+                            push_char(escaped_quote, &mut current_line, &mut result);
+                            // Stay in StringLiteral state - this is still part of the string
+                        } else {
+                            // End of string literal
+                            state = State::Code;
+                        }
+                    }
                 }
             }
             State::LineComment => {
                 if ch == '\n' || ch == '\r' {
-                    // Do not push newline into buffer first; flush handles adding it (for trim=false directly, for trim=true after trimming)
-                    if do_trim {
-                        // Trim and output line, then newline
-                        let trimmed = current_line.trim_end();
-                        result.push_str(trimmed);
-                        current_line.clear();
-                        result.push(ch);
-                    } else {
-                        result.push(ch);
-                    }
+                    // End of line comment - use consistent flush_line_ending logic
+                    flush_line_ending(ch, &mut current_line, &mut result);
                     state = State::Code;
                 } else {
-                    if do_trim {
-                        current_line.push(ch);
-                    } else {
-                        result.push(ch);
-                    }
+                    push_char(ch, &mut current_line, &mut result);
                 }
             }
             State::BraceComment => {
-                push_char(ch, &mut current_line, &mut result);
-                if ch == '}' {
-                    state = State::Code;
-                }
                 if ch == '\n' || ch == '\r' {
+                    // Handle newlines in brace comments consistently
                     flush_line_ending(ch, &mut current_line, &mut result);
-                }
-            }
-            State::ParenStarComment => {
-                push_char(ch, &mut current_line, &mut result);
-                if ch == '*' {
-                    // Look ahead for )
-                    if let Some(')') = chars.peek().copied() {
-                        let cp = chars.next().unwrap();
-                        push_char(cp, &mut current_line, &mut result);
+                } else {
+                    push_char(ch, &mut current_line, &mut result);
+                    if ch == '}' {
                         state = State::Code;
                     }
                 }
+            }
+            State::ParenStarComment => {
                 if ch == '\n' || ch == '\r' {
+                    // Handle newlines in paren-star comments consistently
                     flush_line_ending(ch, &mut current_line, &mut result);
+                } else {
+                    push_char(ch, &mut current_line, &mut result);
+                    if ch == '*' {
+                        // Look ahead for ) to end comment
+                        if let Some(')') = chars.peek().copied() {
+                            let closing_paren = chars.next().unwrap();
+                            push_char(closing_paren, &mut current_line, &mut result);
+                            state = State::Code;
+                        }
+                    }
                 }
             }
         }
@@ -509,7 +504,102 @@ mod tests {
         assert_eq!(result[0].text, Some("Hello, World\nFoo; Bar".to_string()));
     }
 
-    // --- New tests ensuring spacing is skipped inside strings & comments ---
+    // --- Tests for edge cases and bug fixes ---
+
+    #[test]
+    fn test_escaped_quotes_in_string_literals() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        // Test escaped single quotes in Delphi/Pascal strings
+        let text = "s := 'It''s a test',x;y";
+        let result = apply_text_changes(text, &options);
+        // The comma/semicolon inside the string should not be spaced
+        assert_eq!(result, "s := 'It''s a test', x; y");
+    }
+
+    #[test]
+    fn test_complex_escaped_quotes() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: false,
+            trim_trailing_whitespace: false,
+        };
+        // Multiple escaped quotes and code after
+        let text = "msg := 'Can''t say ''hello'', sorry',next";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "msg := 'Can''t say ''hello'', sorry', next");
+    }
+
+    #[test]
+    fn test_unterminated_string_with_line_break() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        // Unterminated string that breaks at newline
+        let text = "s := 'unterminated\ncode,after;break";
+        let result = apply_text_changes(text, &options);
+        // After line break, spacing should be applied
+        assert_eq!(result, "s := 'unterminated\ncode, after; break");
+    }
+
+    #[test]
+    fn test_multiline_comments_with_spacing() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        // Test multiline brace comments
+        let text = "{ multi\nline,comment;here }\ncode,after";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "{ multi\nline,comment;here }\ncode, after");
+    }
+
+    #[test]
+    fn test_multiline_paren_star_comments() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        // Test multiline (* *) comments
+        let text = "(* multi\nline,comment;here *)\ncode,after";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "(* multi\nline,comment;here *)\ncode, after");
+    }
+
+    #[test]
+    fn test_trim_with_different_line_endings() {
+        let options = TextChangeOptions {
+            space_after_comma: false,
+            space_after_semi_colon: false,
+            trim_trailing_whitespace: true,
+        };
+        // Test trimming with both LF and CRLF
+        let text = "line1   \r\nline2\t\t\nline3   ";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "line1\r\nline2\nline3");
+    }
+
+    #[test]
+    fn test_spacing_with_consecutive_punctuation() {
+        let options = TextChangeOptions {
+            space_after_comma: true,
+            space_after_semi_colon: true,
+            trim_trailing_whitespace: false,
+        };
+        // Test that we don't add space before another comma/semicolon, but do add after
+        let text = "a,,b;;c,;d";
+        let result = apply_text_changes(text, &options);
+        assert_eq!(result, "a,, b;; c, ; d"); // Spaces added after punctuation, not before
+    }
+
+    // --- Original tests ensuring spacing is skipped inside strings & comments ---
     #[test]
     fn test_skip_spacing_inside_string_literal() {
         let options = TextChangeOptions {
