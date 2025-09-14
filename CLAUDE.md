@@ -21,6 +21,7 @@ The binary is `dfixxer` (or `dfixxer.exe` on Windows) and can be found in `targe
 ## Code style
 
 - Prefer free functions instead of member ones.
+- Prefer functions that execute on a single item, and loop through values at higher level.
 
 ## Architecture
 
