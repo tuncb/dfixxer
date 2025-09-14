@@ -77,7 +77,7 @@ pub fn print_replacements(original_source: &str, replacements: &[TextReplacement
     }
 }
 
-/// Generate identity replacements for the gaps between existing replacements
+/// Generate sections for the gaps between existing replacements (not including the replacements themselves)
 pub fn compute_source_sections(
     original_source: &str,
     replacements: &[TextReplacement],
@@ -103,10 +103,6 @@ pub fn compute_source_sections(
                 end: r.start,
             });
         }
-        sections.push(SourceSection {
-            start: r.start,
-            end: r.end,
-        });
         last_end = r.end;
     }
 
@@ -120,42 +116,6 @@ pub fn compute_source_sections(
     sections
 }
 
-// Original public API retained for external callers.
-pub fn fill_gaps_with_identity_replacements(
-    original_source: &str,
-    mut replacements: Vec<TextReplacement>,
-) -> Vec<TextReplacement> {
-    if replacements.is_empty() {
-        return vec![TextReplacement {
-            start: 0,
-            end: original_source.len(),
-            text: None,
-        }];
-    }
-    replacements.sort_by_key(|r| r.start);
-    let mut all: Vec<TextReplacement> = Vec::new();
-    let mut last_end = 0usize;
-    for r in replacements.into_iter() {
-        if last_end < r.start {
-            all.push(TextReplacement {
-                start: last_end,
-                end: r.start,
-                text: None,
-            });
-        }
-        last_end = r.end;
-        all.push(r);
-    }
-    if last_end < original_source.len() {
-        all.push(TextReplacement {
-            start: last_end,
-            end: original_source.len(),
-            text: None,
-        });
-    }
-    all
-}
-
 pub fn merge_replacements(
     filename: &str,
     original_source: &str,
@@ -165,19 +125,33 @@ pub fn merge_replacements(
         return Ok(());
     }
 
-    let sections = compute_source_sections(original_source, &replacements);
+    // Sort replacements by start position
+    let mut sorted_replacements = replacements;
+    sorted_replacements.sort_by_key(|r| r.start);
 
-    // Build final text by mapping each section to either replacement text or original slice
+    // Build final text by processing original text and applying replacements
     let mut out = String::new();
-    for section in sections {
-        if let Some(r) = replacements
-            .iter()
-            .find(|tr| tr.start == section.start && tr.end == section.end && tr.text.is_some())
-        {
-            out.push_str(r.text.as_ref().unwrap());
-        } else {
-            out.push_str(&original_source[section.start..section.end]);
+    let mut current_pos = 0;
+
+    for replacement in &sorted_replacements {
+        // Add any original text before this replacement
+        if current_pos < replacement.start {
+            out.push_str(&original_source[current_pos..replacement.start]);
         }
+
+        // Add replacement text if present, otherwise keep original
+        if let Some(ref replacement_text) = replacement.text {
+            out.push_str(replacement_text);
+        } else {
+            out.push_str(&original_source[replacement.start..replacement.end]);
+        }
+
+        current_pos = replacement.end;
+    }
+
+    // Add any remaining original text after the last replacement
+    if current_pos < original_source.len() {
+        out.push_str(&original_source[current_pos..]);
     }
 
     std::fs::write(filename, out)?;
@@ -215,7 +189,6 @@ mod tests {
             result,
             vec![
                 SourceSection { start: 0, end: 7 },
-                SourceSection { start: 7, end: 12 },
                 SourceSection { start: 12, end: 13 },
             ]
         );
@@ -241,9 +214,7 @@ mod tests {
             result,
             vec![
                 SourceSection { start: 0, end: 4 },
-                SourceSection { start: 4, end: 9 },
                 SourceSection { start: 9, end: 10 },
-                SourceSection { start: 10, end: 15 },
                 SourceSection {
                     start: 15,
                     end: source.len()
@@ -272,8 +243,6 @@ mod tests {
             result,
             vec![
                 SourceSection { start: 0, end: 1 },
-                SourceSection { start: 1, end: 3 },
-                SourceSection { start: 3, end: 5 },
                 SourceSection { start: 5, end: 6 },
             ]
         );
@@ -288,12 +257,6 @@ mod tests {
             text: Some("replaced".to_string()),
         }];
         let result = compute_source_sections(source, &replacements);
-        assert_eq!(
-            result,
-            vec![SourceSection {
-                start: 0,
-                end: source.len()
-            }]
-        );
+        assert_eq!(result, vec![]);
     }
 }

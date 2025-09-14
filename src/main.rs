@@ -12,7 +12,7 @@ mod transform_unit_program_section;
 mod transform_uses_section;
 mod transformer_utility;
 use replacements::{
-    TextReplacement, fill_gaps_with_identity_replacements, merge_replacements, print_replacements,
+    TextReplacement, compute_source_sections, merge_replacements, print_replacements,
 };
 mod parser;
 use parser::parse;
@@ -166,31 +166,24 @@ fn process_file(
             .collect()
     });
 
-    // Apply text transformations to identity replacements if enabled
+    // Apply text transformations if enabled
     if options.transformations.enable_text_transformations {
-        replacements = timing.time_operation("Text transformations", || {
-            // Fill gaps with identity replacements and apply text transformations to them
-            let all_with_identity = fill_gaps_with_identity_replacements(&source, replacements);
+        timing.time_operation("Text transformations", || {
+            // Calculate sections (gaps + existing replacements)
+            let sections = compute_source_sections(&source, &replacements);
 
-            all_with_identity
-                .into_iter()
-                .filter_map(|replacement| {
-                    // If this is an identity replacement (text is None), apply text transformations
-                    if replacement.text.is_none() {
-                        let text = &source[replacement.start..replacement.end];
-                        transform_text::apply_text_transformation(
-                            replacement.start,
-                            replacement.end,
-                            text,
-                            &options.text_changes,
-                        )
-                        .or(Some(replacement)) // Keep original if no changes needed
-                    } else {
-                        // This is a structural or already-transformed replacement, keep as-is
-                        Some(replacement)
-                    }
-                })
-                .collect()
+            // Apply text transformation to each section and add to replacements if there's a change
+            for section in sections {
+                let text = &source[section.start..section.end];
+                if let Some(transformation) = transform_text::apply_text_transformation(
+                    section.start,
+                    section.end,
+                    text,
+                    &options.text_changes,
+                ) {
+                    replacements.push(transformation);
+                }
+            }
         });
     }
 
