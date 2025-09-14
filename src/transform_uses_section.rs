@@ -181,7 +181,6 @@ mod tests {
             },
             indentation: indentation.to_string(),
             line_ending,
-            // ...other fields with default values...
             ..Default::default()
         }
     }

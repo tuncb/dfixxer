@@ -4,7 +4,7 @@ use crate::dfixxer_error::DFixxerError;
 pub struct TextReplacement {
     pub start: usize,
     pub end: usize,
-    pub text: Option<String>, // None means use original text from source[start..end]
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,23 +56,17 @@ pub fn print_replacement(original_source: &str, replacement: &TextReplacement, i
         println!("    - {}", line);
     }
     println!("  Replacement:");
-    if let Some(ref text) = replacement.text {
-        for line in text.lines() {
-            println!("    + {}", line);
-        }
+    for line in replacement.text.lines() {
+        println!("    + {}", line);
     }
     println!();
 }
 
 pub fn print_replacements(original_source: &str, replacements: &[TextReplacement]) {
-    let non_identity_replacements: Vec<_> =
-        replacements.iter().filter(|r| r.text.is_some()).collect();
-
-    if non_identity_replacements.is_empty() {
+    if replacements.is_empty() {
         return;
     }
-
-    for (i, replacement) in non_identity_replacements.iter().enumerate() {
+    for (i, replacement) in replacements.iter().enumerate() {
         print_replacement(original_source, replacement, i + 1);
     }
 }
@@ -139,12 +133,8 @@ pub fn merge_replacements(
             out.push_str(&original_source[current_pos..replacement.start]);
         }
 
-        // Add replacement text if present, otherwise keep original
-        if let Some(ref replacement_text) = replacement.text {
-            out.push_str(replacement_text);
-        } else {
-            out.push_str(&original_source[replacement.start..replacement.end]);
-        }
+        // Add replacement text
+        out.push_str(&replacement.text);
 
         current_pos = replacement.end;
     }
@@ -163,26 +153,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fill_gaps_empty_replacements() {
-        let source = "Hello, world!";
-        let replacements: Vec<TextReplacement> = vec![];
-        let result = compute_source_sections(source, &replacements);
-        assert_eq!(
-            result,
-            vec![SourceSection {
-                start: 0,
-                end: source.len()
-            }]
-        );
-    }
-
-    #[test]
     fn test_fill_gaps_single_replacement() {
         let source = "Hello, world!";
         let replacements = vec![TextReplacement {
             start: 7,
             end: 12,
-            text: Some("Rust".to_string()),
+            text: "Rust".to_string(),
         }];
         let result = compute_source_sections(source, &replacements);
         assert_eq!(
@@ -201,12 +177,12 @@ mod tests {
             TextReplacement {
                 start: 4,
                 end: 9,
-                text: Some("slow".to_string()),
+                text: "slow".to_string(),
             },
             TextReplacement {
                 start: 10,
                 end: 15,
-                text: Some("green".to_string()),
+                text: "green".to_string(),
             },
         ];
         let result = compute_source_sections(source, &replacements);
@@ -230,12 +206,12 @@ mod tests {
             TextReplacement {
                 start: 1,
                 end: 3,
-                text: Some("XX".to_string()),
+                text: "XX".to_string(),
             },
             TextReplacement {
                 start: 3,
                 end: 5,
-                text: Some("YY".to_string()),
+                text: "YY".to_string(),
             },
         ];
         let result = compute_source_sections(source, &replacements);
@@ -254,7 +230,7 @@ mod tests {
         let replacements = vec![TextReplacement {
             start: 0,
             end: source.len(),
-            text: Some("replaced".to_string()),
+            text: "replaced".to_string(),
         }];
         let result = compute_source_sections(source, &replacements);
         assert_eq!(result, vec![]);

@@ -81,7 +81,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 9);
-        assert_eq!(replacement.text, Some("interface".to_string()));
+        assert_eq!(replacement.text, "interface".to_string());
     }
 
     #[test]
@@ -96,7 +96,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 14);
-        assert_eq!(replacement.text, Some("implementation".to_string()));
+        assert_eq!(replacement.text, "implementation".to_string());
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0); // Should start at beginning of line (removes whitespace)
         assert_eq!(replacement.end, 14);
-        assert_eq!(replacement.text, Some("finalization".to_string()));
+        assert_eq!(replacement.text, "finalization".to_string());
     }
 
     #[test]
@@ -137,7 +137,7 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 9); // Should start at original position
         assert_eq!(replacement.end, 18);
-        assert_eq!(replacement.text, Some("\ninterface".to_string())); // Should have newline prepended
+        assert_eq!(replacement.text, "\ninterface".to_string()); // Should have newline prepended
     }
 
     #[test]

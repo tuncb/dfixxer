@@ -113,11 +113,7 @@ fn process_file(
     let apply_text_transformation_if_enabled =
         |replacement: TextReplacement| -> Option<TextReplacement> {
             if options.transformations.enable_text_transformations {
-                let text = replacement
-                    .text
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or(&source[replacement.start..replacement.end]);
+                let text = replacement.text.as_str();
                 transform_text::apply_text_transformation(
                     replacement.start,
                     replacement.end,
@@ -284,9 +280,8 @@ fn run() -> Result<i32, DFixxerError> {
                 // Log the timing summary
                 timing.log_summary();
 
-                // Return the number of non-identity replacements as exit code
-                let non_identity_count = replacements.iter().filter(|r| r.text.is_some()).count();
-                non_identity_count as i32
+                // Return the number of replacements as exit code
+                replacements.len() as i32
             }
             Command::InitConfig => {
                 // InitConfig doesn't use multi mode, so just process first file

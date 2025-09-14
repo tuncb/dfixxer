@@ -19,7 +19,7 @@ pub fn transform_procedure_section(
     Some(TextReplacement {
         start: identifier_node.end_byte,
         end: identifier_node.end_byte, // Insert, don't replace
-        text: Some("()".to_string()),
+        text: "()".to_string(),
     })
 }
 
@@ -61,7 +61,7 @@ mod tests {
         let replacement = replacement.unwrap();
         assert_eq!(replacement.start, 13); // After "Foo"
         assert_eq!(replacement.end, 13); // Insert, don't replace
-        assert_eq!(replacement.text, Some("()".to_string()));
+    assert_eq!(replacement.text, "()".to_string());
     }
 
     #[test]
@@ -85,6 +85,6 @@ mod tests {
         let replacement = replacement.unwrap();
         assert_eq!(replacement.start, 12); // After "Bar"
         assert_eq!(replacement.end, 12); // Insert, don't replace
-        assert_eq!(replacement.text, Some("()".to_string()));
+        assert_eq!(replacement.text, "()".to_string());
     }
 }

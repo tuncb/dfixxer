@@ -137,7 +137,7 @@ mod tests {
         let result = transform_unit_program_section(&code_section, &options, source);
         assert!(result.is_some());
         let replacement = result.unwrap();
-        assert_eq!(replacement.text, Some("unit MyUnit;".to_string()));
+        assert_eq!(replacement.text, "unit MyUnit;".to_string());
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 17);
     }
@@ -154,9 +154,8 @@ mod tests {
             ],
         };
         let options = make_options(LineEnding::Lf);
-
         let result = transform_unit_program_section(&code_section, &options, source);
-        assert!(result.is_none()); // Should skip due to having 3 siblings instead of 2
+        assert!(result.is_none()); // Should skip due to extra sibling (comment)
     }
 
     #[test]

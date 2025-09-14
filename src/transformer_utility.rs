@@ -64,7 +64,7 @@ pub fn create_text_replacement_if_different(
     Some(TextReplacement {
         start: replacement_start,
         end: replacement_end,
-        text: Some(replacement_text),
+        text: replacement_text,
     })
 }
 
@@ -174,6 +174,6 @@ mod tests {
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 13);
-        assert_eq!(replacement.text, Some("new text".to_string()));
+        assert_eq!(replacement.text, "new text".to_string());
     }
 }
