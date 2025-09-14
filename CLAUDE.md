@@ -14,8 +14,13 @@ Debug output can be shown by `parse` (see tree-sitter output) and `parse-debug` 
 - **Build release**: `cargo build --release`
 - **Run tests**: `cargo test`
 - **Run with logging**: `cargo run -- --log-level debug <command> <args>`
+- **See github issue**: `gh issue view <id> --repo tuncb/dfixxer`
 
 The binary is `dfixxer` (or `dfixxer.exe` on Windows) and can be found in `target/debug/` or `target/release/`.
+
+## Code style
+
+- Prefer free functions instead of member ones.
 
 ## Architecture
 

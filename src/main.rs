@@ -3,7 +3,7 @@ use dfixxer_error::DFixxerError;
 mod arguments;
 use arguments::{Command, parse_args};
 mod options;
-use options::{Options, should_exclude_file};
+use options::{Options, should_exclude_file, find_custom_config_for_file};
 mod replacements;
 mod transform_procedure_section;
 mod transform_single_keyword_sections;
@@ -87,7 +87,21 @@ fn process_file(
 ) -> Result<(String, Vec<TextReplacement>), DFixxerError> {
     // Load options from config file, or use defaults if not found
     let config_path = config_path.unwrap_or("dfixxer.toml");
-    let options: Options = Options::load_or_default(config_path);
+    let initial_options: Options = Options::load_or_default(config_path);
+
+    // Check if there's a custom config for this specific file
+    let final_config_path = find_custom_config_for_file(
+        &initial_options.custom_config_patterns,
+        filename,
+        Some(config_path),
+    ).unwrap_or_else(|| config_path.to_string());
+
+    let options: Options = if final_config_path != config_path {
+        log::info!("Loading custom configuration from: {}", final_config_path);
+        Options::load_or_default(&final_config_path)
+    } else {
+        initial_options
+    };
 
     // Time file loading
     let source = timing.time_operation_result("File loading", || load_file(filename))?;
