@@ -12,3 +12,4 @@ enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = false
