@@ -3,7 +3,7 @@ use dfixxer_error::DFixxerError;
 mod arguments;
 use arguments::{Command, parse_args};
 mod options;
-use options::Options;
+use options::{Options, should_exclude_file};
 mod replacements;
 mod transform_procedure_section;
 mod transform_single_keyword_sections;
@@ -152,6 +152,22 @@ fn process_file(
 fn run() -> Result<i32, DFixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
+
+    // For commands that process files, check if the file should be excluded
+    match &arguments.command {
+        Command::UpdateFile | Command::CheckFile => {
+            // Load options to check exclusion patterns
+            let config_path = arguments.config_path.as_deref().unwrap_or("dfixxer.toml");
+            let options = Options::load_or_default(config_path);
+
+            // Check if file is excluded
+            if should_exclude_file(&options.exclude_files, &arguments.filename, Some(config_path)) {
+                log::info!("File '{}' is excluded by configuration, exiting successfully", arguments.filename);
+                return Ok(0);
+            }
+        }
+        _ => {}
+    }
 
     match arguments.command {
         Command::UpdateFile => {

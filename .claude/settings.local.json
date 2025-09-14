@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo:*)"
+      "Bash(cargo:*)",
+      "Bash(./target/debug/dfixxer.exe:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,7 +1,8 @@
 use crate::dfixxer_error::DFixxerError;
+use glob::Pattern;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum UsesSectionStyle {
@@ -142,6 +143,7 @@ pub struct Options {
     pub line_ending: LineEnding,
     pub transformations: TransformationOptions,
     pub text_changes: TextChangeOptions,
+    pub exclude_files: Vec<String>,
 }
 
 impl Default for Options {
@@ -150,6 +152,7 @@ impl Default for Options {
             indentation: "  ".to_string(),
             uses_section_style: UsesSectionStyle::CommaAtTheEnd,
             override_sorting_order: Vec::new(),
+            exclude_files: Vec::new(),
             module_names_to_update: vec![
                 "System:Actions".to_string(),
                 "System:Analytics.AppAnalytics".to_string(),
@@ -417,6 +420,66 @@ impl Default for Options {
     }
 }
 
+/// Check if a file should be excluded based on exclude_files patterns
+///
+/// Patterns are matched relative to the configuration file's directory.
+///
+/// # Arguments
+/// * `exclude_patterns` - A slice of glob patterns to match against
+/// * `file_path` - The absolute or relative path to the file to check
+/// * `config_path` - The path to the configuration file (for determining base directory)
+///
+/// # Returns
+/// * `true` if the file should be excluded, `false` otherwise
+pub fn should_exclude_file(exclude_patterns: &[String], file_path: &str, config_path: Option<&str>) -> bool {
+    if exclude_patterns.is_empty() {
+        return false;
+    }
+
+    let file_path = Path::new(file_path);
+
+    // Get the base directory from the config file path
+    let base_dir = if let Some(config) = config_path {
+        Path::new(config)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        PathBuf::from(".")
+    };
+
+    // Try to make the file path relative to the base directory
+    let relative_path = if file_path.is_absolute() {
+        file_path
+            .strip_prefix(&base_dir)
+            .unwrap_or(file_path)
+    } else {
+        file_path
+    };
+
+    // Convert to string for pattern matching, normalize separators to forward slashes
+    let path_str = relative_path
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    // Check each pattern
+    for pattern_str in exclude_patterns {
+        match Pattern::new(pattern_str) {
+            Ok(pattern) => {
+                if pattern.matches(&path_str) {
+                    log::info!("File '{}' excluded by pattern '{}'", path_str, pattern_str);
+                    return true;
+                }
+            }
+            Err(e) => {
+                log::warn!("Invalid glob pattern '{}': {}", pattern_str, e);
+            }
+        }
+    }
+
+    false
+}
+
 impl Options {
     /// Load options from a TOML file, using defaults for missing fields
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, DFixxerError> {
@@ -483,6 +546,7 @@ mod tests {
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.exclude_files, Vec::<String>::new());
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
@@ -495,6 +559,7 @@ mod tests {
         assert_eq!(options.indentation, "  ");
         assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
         assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.exclude_files, Vec::<String>::new());
         assert!(!options.module_names_to_update.is_empty());
         assert_eq!(options.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
@@ -511,6 +576,7 @@ mod tests {
             uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
             override_sorting_order: vec!["test_error".to_string()],
             module_names_to_update: Vec::new(),
+            exclude_files: vec!["*.tmp".to_string(), "backup/*".to_string()],
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
             text_changes: TextChangeOptions {
@@ -538,6 +604,7 @@ mod tests {
             vec!["test_error".to_string()]
         );
         assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
+        assert_eq!(loaded_options.exclude_files, vec!["*.tmp".to_string(), "backup/*".to_string()]);
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
         assert_eq!(loaded_options.text_changes.comma, SpaceOperation::NoChange);
         // Manual cleanup
@@ -647,6 +714,51 @@ enable_uses_section = false
     }
 
     #[test]
+    fn test_should_exclude_file() {
+        // Test with no exclusion patterns
+        let empty_patterns = vec![];
+        assert!(!should_exclude_file(&empty_patterns, "test.pas", None));
+
+        // Test with single pattern
+        let single_pattern = vec!["*.tmp".to_string()];
+        assert!(should_exclude_file(&single_pattern, "test.tmp", None));
+        assert!(!should_exclude_file(&single_pattern, "test.pas", None));
+
+        // Test with multiple patterns
+        let multiple_patterns = vec![
+            "*.tmp".to_string(),
+            "test/*".to_string(),
+            "backup*.pas".to_string(),
+        ];
+        assert!(should_exclude_file(&multiple_patterns, "file.tmp", None));
+        assert!(should_exclude_file(&multiple_patterns, "test/file.pas", None));
+        assert!(should_exclude_file(&multiple_patterns, "backup_old.pas", None));
+        assert!(!should_exclude_file(&multiple_patterns, "normal.pas", None));
+
+        // Test with path normalization
+        assert!(should_exclude_file(&multiple_patterns, "test\\file.pas", None));
+    }
+
+    #[test]
+    fn test_should_exclude_file_with_config_path() {
+        let patterns = vec!["test/*.pas".to_string()];
+
+        // Test relative to config directory
+        let config_path = "project/dfixxer.toml";
+        assert!(should_exclude_file(&patterns, "test/file.pas", Some(config_path)));
+        assert!(!should_exclude_file(&patterns, "src/file.pas", Some(config_path)));
+    }
+
+    #[test]
+    fn test_invalid_glob_pattern() {
+        // Invalid pattern should be ignored (not crash)
+        let invalid_patterns = vec!["[invalid".to_string()];
+
+        // Should not match anything due to invalid pattern
+        assert!(!should_exclude_file(&invalid_patterns, "test.pas", None));
+    }
+
+    #[test]
     fn test_line_ending_direct_usage() {
         let mut options = Options::default();
 
@@ -661,6 +773,36 @@ enable_uses_section = false
         assert_eq!(options.line_ending.to_string(), "\r\n");
         #[cfg(not(windows))]
         assert_eq!(options.line_ending.to_string(), "\n");
+    }
+
+    #[test]
+    fn test_config_with_exclude_files() {
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("config_with_excludes.toml");
+
+        // Create a TOML file with exclude_files
+        fs::write(
+            &file_path,
+            r#"
+indentation = "  "
+exclude_files = ["*.tmp", "backup/*", "test_*.pas"]
+
+[transformations]
+enable_uses_section = true
+"#,
+        )
+        .unwrap();
+
+        let options = Options::load_from_file(&file_path).unwrap();
+        assert_eq!(options.indentation, "  ");
+        assert_eq!(options.exclude_files.len(), 3);
+        assert_eq!(options.exclude_files[0], "*.tmp");
+        assert_eq!(options.exclude_files[1], "backup/*");
+        assert_eq!(options.exclude_files[2], "test_*.pas");
+
+        // Clean up
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
     }
 
     #[test]
