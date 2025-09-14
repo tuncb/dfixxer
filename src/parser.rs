@@ -64,10 +64,20 @@ pub struct CodeSection {
     pub siblings: Vec<ParsedNode>,
 }
 
+/// Struct representing an unparsed region in the source code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnparsedRegion {
+    /// Start byte position of the unparsed region
+    pub start: usize,
+    /// End byte position of the unparsed region
+    pub end: usize,
+}
+
 /// Struct representing the result of parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseResult {
     pub code_sections: Vec<CodeSection>,
+    pub unparsed_regions: Vec<UnparsedRegion>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -322,6 +332,80 @@ fn transform_procedure_declaration_to_code_section(declproc_node: Node) -> Optio
     None
 }
 
+/// Calculate unparsed regions based on CodeSections
+/// An unparsed region is any part of the source that is not covered by a CodeSection
+fn calculate_unparsed_regions(code_sections: &[CodeSection], source_len: usize) -> Vec<UnparsedRegion> {
+    if code_sections.is_empty() {
+        // If no code sections, entire source is unparsed
+        if source_len > 0 {
+            return vec![UnparsedRegion { start: 0, end: source_len }];
+        } else {
+            return vec![];
+        }
+    }
+
+    let mut unparsed_regions = Vec::new();
+
+    // Collect all parsed regions (start, end) from CodeSections
+    let mut parsed_regions: Vec<(usize, usize)> = Vec::new();
+
+    for section in code_sections {
+        // Get the extent of the entire code section
+        let mut min_start = section.keyword.start_byte;
+        let mut max_end = section.keyword.end_byte;
+
+        // Include all siblings in the parsed region
+        for sibling in &section.siblings {
+            min_start = min_start.min(sibling.start_byte);
+            max_end = max_end.max(sibling.end_byte);
+        }
+
+        parsed_regions.push((min_start, max_end));
+    }
+
+    // Sort parsed regions by start position
+    parsed_regions.sort_by_key(|&(start, _)| start);
+
+    // Merge overlapping parsed regions
+    let mut merged_parsed: Vec<(usize, usize)> = Vec::new();
+    for (start, end) in parsed_regions {
+        if let Some((_, last_end)) = merged_parsed.last_mut() {
+            if *last_end >= start {
+                // Regions overlap or are adjacent, merge them
+                *last_end = (*last_end).max(end);
+            } else {
+                merged_parsed.push((start, end));
+            }
+        } else {
+            merged_parsed.push((start, end));
+        }
+    }
+
+    // Now find gaps between parsed regions - these are unparsed regions
+    let mut current_pos = 0;
+
+    for (parsed_start, parsed_end) in merged_parsed {
+        // If there's a gap before this parsed region, it's unparsed
+        if current_pos < parsed_start {
+            unparsed_regions.push(UnparsedRegion {
+                start: current_pos,
+                end: parsed_start,
+            });
+        }
+        current_pos = parsed_end;
+    }
+
+    // If there's remaining content after the last parsed region
+    if current_pos < source_len {
+        unparsed_regions.push(UnparsedRegion {
+            start: current_pos,
+            end: source_len,
+        });
+    }
+
+    unparsed_regions
+}
+
 /// Parse source code string and return ParseResult
 pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     let tree = parse_to_tree(source)?;
@@ -330,7 +414,13 @@ pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     // Traverse the AST and collect all code sections
     traverse_and_parse(tree.root_node(), &mut code_sections);
 
-    Ok(ParseResult { code_sections })
+    // Calculate unparsed regions based on the code sections
+    let unparsed_regions = calculate_unparsed_regions(&code_sections, source.len());
+
+    Ok(ParseResult {
+        code_sections,
+        unparsed_regions,
+    })
 }
 
 /// Parse the source, create the tree-sitter tree, and print each node's kind and text
@@ -658,5 +748,87 @@ end."#;
             .collect();
 
         assert_eq!(proc_func_sections.len(), 0, "Should not detect procedures/functions that already have parentheses");
+    }
+
+    #[test]
+    fn test_unparsed_regions_simple() {
+        let source = r#"program MyProgram;
+uses
+  UnitA,
+  UnitB;
+begin
+  WriteLn('Hello');
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // The unparsed regions should include the begin..end block
+        assert!(!result.unparsed_regions.is_empty(), "Should have unparsed regions");
+
+        // The program declaration and uses section should be parsed
+        assert_eq!(result.code_sections.len(), 2);
+
+        // Find where the uses section ends
+        let uses_section = result.code_sections.iter()
+            .find(|cs| cs.keyword.kind == Kind::Uses)
+            .expect("Should have uses section");
+
+        let mut uses_end = uses_section.keyword.end_byte;
+        for sibling in &uses_section.siblings {
+            uses_end = uses_end.max(sibling.end_byte);
+        }
+
+        // There should be an unparsed region after the uses section
+        let has_unparsed_after_uses = result.unparsed_regions.iter()
+            .any(|r| r.start >= uses_end);
+
+        assert!(has_unparsed_after_uses, "Should have unparsed region after uses section");
+    }
+
+    #[test]
+    fn test_unparsed_regions_empty_file() {
+        let source = "";
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Empty file should have no unparsed regions
+        assert_eq!(result.unparsed_regions.len(), 0);
+        assert_eq!(result.code_sections.len(), 0);
+    }
+
+    #[test]
+    fn test_unparsed_regions_only_comments() {
+        let source = r#"// This is just a comment
+{ Another comment }"#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // File with only comments should be entirely unparsed
+        assert_eq!(result.code_sections.len(), 0);
+        assert_eq!(result.unparsed_regions.len(), 1);
+        assert_eq!(result.unparsed_regions[0].start, 0);
+        assert_eq!(result.unparsed_regions[0].end, source.len());
+    }
+
+    #[test]
+    fn test_unparsed_regions_between_sections() {
+        let source = r#"unit MyUnit;
+interface
+uses
+  System;
+const
+  MyConst = 42;
+implementation
+uses
+  SysUtils;
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        // Should have unit, interface, uses (interface), implementation, uses (implementation) sections
+        assert!(result.code_sections.len() >= 4);
+
+        // Should have unparsed regions for const section and end.
+        assert!(!result.unparsed_regions.is_empty(), "Should have unparsed regions");
     }
 }
