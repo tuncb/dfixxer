@@ -110,11 +110,12 @@ fn process_file(
     let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
 
     // Helper function to apply text transformations to a replacement if enabled
-    let apply_text_transformation_if_enabled = |replacement: TextReplacement| -> TextReplacement {
+    let apply_text_transformation_if_enabled = |replacement: TextReplacement| -> Option<TextReplacement> {
         if options.transformations.enable_text_transformations {
-            transform_text::apply_text_transformation(&source, replacement, &options.text_changes)
+            transform_text::apply_text_transformation(&source, &replacement, &options.text_changes)
+                .or(Some(replacement)) // Return original if no changes needed
         } else {
-            replacement
+            Some(replacement)
         }
     };
 
@@ -145,7 +146,7 @@ fn process_file(
                         if options.transformations.enable_procedure_section =>
                     {
                         transform_procedure_section(code_section, &options, &source)
-                            .map(apply_text_transformation_if_enabled)
+                            .and_then(apply_text_transformation_if_enabled)
                     }
                     _ => None,
                 };
@@ -162,17 +163,18 @@ fn process_file(
 
             all_with_identity
                 .into_iter()
-                .map(|replacement| {
+                .filter_map(|replacement| {
                     // If this is an identity replacement (text is None), apply text transformations
                     if replacement.text.is_none() {
                         transform_text::apply_text_transformation(
                             &source,
-                            replacement,
+                            &replacement,
                             &options.text_changes,
                         )
+                        .or(Some(replacement)) // Keep original if no changes needed
                     } else {
                         // This is a structural or already-transformed replacement, keep as-is
-                        replacement
+                        Some(replacement)
                     }
                 })
                 .collect()

@@ -2,23 +2,38 @@ use crate::options::{SpaceOperation, TextChangeOptions};
 use crate::replacements::TextReplacement;
 
 /// Apply text transformations based on the given options to a single replacement
+/// Returns None if there are no changes, Some(replacement) if changes are made
 pub fn apply_text_transformation(
     original_source: &str,
-    mut replacement: TextReplacement,
+    replacement: &TextReplacement,
     options: &TextChangeOptions,
-) -> TextReplacement {
-    if let Some(ref mut text) = replacement.text {
-        *text = apply_text_changes(text, options);
+) -> Option<TextReplacement> {
+    if let Some(ref text) = replacement.text {
+        let modified_text = apply_text_changes(text, options);
+        if modified_text != *text {
+            Some(TextReplacement {
+                start: replacement.start,
+                end: replacement.end,
+                text: Some(modified_text),
+            })
+        } else {
+            None
+        }
     } else {
         // For identity replacements, we need to get the original text,
-        // apply changes, and if changed, convert to a regular replacement
+        // apply changes, and if changed, create a new replacement
         let original_text = &original_source[replacement.start..replacement.end];
         let modified_text = apply_text_changes(original_text, options);
         if modified_text != original_text {
-            replacement.text = Some(modified_text);
+            Some(TextReplacement {
+                start: replacement.start,
+                end: replacement.end,
+                text: Some(modified_text),
+            })
+        } else {
+            None
         }
     }
-    replacement
 }
 
 /// Helper function to determine if space should be added before a character/operator
@@ -1171,8 +1186,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("Hello, World".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("Hello, World".to_string()));
     }
 
     #[test]
@@ -1190,8 +1205,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("A, B, C".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("A, B, C".to_string()));
     }
 
     #[test]
@@ -1210,8 +1225,8 @@ mod tests {
             end: 11,
             text: None, // Identity replacement that needs modification
         };
-        let result1 = apply_text_transformation(source, replacement1, &options);
-        assert_eq!(result1.text, Some("Hello, World".to_string()));
+        let result1 = apply_text_transformation(source, &replacement1, &options);
+        assert_eq!(result1.unwrap().text, Some("Hello, World".to_string()));
 
         // Test regular replacement without commas
         let replacement2 = TextReplacement {
@@ -1219,8 +1234,8 @@ mod tests {
             end: 15,
             text: Some(" and ".to_string()), // Regular replacement, no commas
         };
-        let result2 = apply_text_transformation(source, replacement2, &options);
-        assert_eq!(result2.text, Some(" and ".to_string()));
+        let result2 = apply_text_transformation(source, &replacement2, &options);
+        assert!(result2.is_none()); // No changes should be made
 
         // Test regular replacement with comma
         let replacement3 = TextReplacement {
@@ -1228,8 +1243,8 @@ mod tests {
             end: 23,
             text: Some("Baz,Qux".to_string()), // Regular replacement with comma
         };
-        let result3 = apply_text_transformation(source, replacement3, &options);
-        assert_eq!(result3.text, Some("Baz, Qux".to_string()));
+        let result3 = apply_text_transformation(source, &replacement3, &options);
+        assert_eq!(result3.unwrap().text, Some("Baz, Qux".to_string()));
     }
 
     #[test]
@@ -1248,9 +1263,9 @@ mod tests {
             end: 11,
             text: Some("uses,System".to_string()),
         };
-        let result1 = apply_text_transformation(source, uses_replacement, &options);
+        let result1 = apply_text_transformation(source, &uses_replacement, &options);
         // The function should transform it
-        assert_eq!(result1.text, Some("uses, System".to_string()));
+        assert_eq!(result1.unwrap().text, Some("uses, System".to_string()));
 
         // Test regular replacement
         let regular_replacement = TextReplacement {
@@ -1258,8 +1273,8 @@ mod tests {
             end: 23,
             text: Some(" test,code".to_string()),
         };
-        let result2 = apply_text_transformation(source, regular_replacement, &options);
-        assert_eq!(result2.text, Some(" test, code".to_string()));
+        let result2 = apply_text_transformation(source, &regular_replacement, &options);
+        assert_eq!(result2.unwrap().text, Some(" test, code".to_string()));
     }
 
     #[test]
@@ -1329,8 +1344,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("a, b; c".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("a, b; c".to_string()));
     }
 
     #[test]
@@ -1348,8 +1363,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("a, b; c".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("a, b; c".to_string()));
     }
 
     #[test]
@@ -1367,8 +1382,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("a, b; c".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("a, b; c".to_string()));
     }
 
     #[test]
@@ -1425,8 +1440,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("a, b; c\nd, e; f".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("a, b; c\nd, e; f".to_string()));
     }
 
     #[test]
@@ -1444,8 +1459,46 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(source, replacement, &options);
-        assert_eq!(result.text, Some("Hello, World\nFoo; Bar".to_string()));
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert_eq!(result.unwrap().text, Some("Hello, World\nFoo; Bar".to_string()));
+    }
+
+    #[test]
+    fn test_apply_text_transformation_no_changes() {
+        let source = "Hello, World";
+        let replacement = TextReplacement {
+            start: 0,
+            end: 12,
+            text: None, // Identity replacement
+        };
+        let options = TextChangeOptions {
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert!(result.is_none()); // No changes needed
+    }
+
+    #[test]
+    fn test_apply_text_transformation_regular_replacement_no_changes() {
+        let source = "Original";
+        let replacement = TextReplacement {
+            start: 0,
+            end: 8,
+            text: Some("Hello, World".to_string()), // Already properly formatted
+        };
+        let options = TextChangeOptions {
+            comma: SpaceOperation::After,
+            semi_colon: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let result = apply_text_transformation(source, &replacement, &options);
+        assert!(result.is_none()); // No changes needed
     }
 
     // --- Tests for edge cases and bug fixes ---
