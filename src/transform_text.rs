@@ -1184,7 +1184,12 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(replacement.start, replacement.end, replacement.text.as_ref().unwrap(), &options);
+        let result = apply_text_transformation(
+            replacement.start,
+            replacement.end,
+            replacement.text.as_ref().unwrap(),
+            &options,
+        );
         assert_eq!(result.unwrap().text, Some("A, B, C".to_string()));
     }
 
@@ -1205,7 +1210,8 @@ mod tests {
             text: None, // Identity replacement that needs modification
         };
         let text1 = &source[replacement1.start..replacement1.end];
-        let result1 = apply_text_transformation(replacement1.start, replacement1.end, text1, &options);
+        let result1 =
+            apply_text_transformation(replacement1.start, replacement1.end, text1, &options);
         assert_eq!(result1.unwrap().text, Some("Hello, World".to_string()));
 
         // Test regular replacement without commas
@@ -1214,7 +1220,12 @@ mod tests {
             end: 15,
             text: Some(" and ".to_string()), // Regular replacement, no commas
         };
-        let result2 = apply_text_transformation(replacement2.start, replacement2.end, replacement2.text.as_ref().unwrap(), &options);
+        let result2 = apply_text_transformation(
+            replacement2.start,
+            replacement2.end,
+            replacement2.text.as_ref().unwrap(),
+            &options,
+        );
         assert!(result2.is_none()); // No changes should be made
 
         // Test regular replacement with comma
@@ -1223,7 +1234,12 @@ mod tests {
             end: 23,
             text: Some("Baz,Qux".to_string()), // Regular replacement with comma
         };
-        let result3 = apply_text_transformation(replacement3.start, replacement3.end, replacement3.text.as_ref().unwrap(), &options);
+        let result3 = apply_text_transformation(
+            replacement3.start,
+            replacement3.end,
+            replacement3.text.as_ref().unwrap(),
+            &options,
+        );
         assert_eq!(result3.unwrap().text, Some("Baz, Qux".to_string()));
     }
 
@@ -1242,7 +1258,12 @@ mod tests {
             end: 11,
             text: Some("uses,System".to_string()),
         };
-        let result1 = apply_text_transformation(uses_replacement.start, uses_replacement.end, uses_replacement.text.as_ref().unwrap(), &options);
+        let result1 = apply_text_transformation(
+            uses_replacement.start,
+            uses_replacement.end,
+            uses_replacement.text.as_ref().unwrap(),
+            &options,
+        );
         // The function should transform it
         assert_eq!(result1.unwrap().text, Some("uses, System".to_string()));
 
@@ -1252,7 +1273,12 @@ mod tests {
             end: 23,
             text: Some(" test,code".to_string()),
         };
-        let result2 = apply_text_transformation(regular_replacement.start, regular_replacement.end, regular_replacement.text.as_ref().unwrap(), &options);
+        let result2 = apply_text_transformation(
+            regular_replacement.start,
+            regular_replacement.end,
+            regular_replacement.text.as_ref().unwrap(),
+            &options,
+        );
         assert_eq!(result2.unwrap().text, Some(" test, code".to_string()));
     }
 
@@ -1322,7 +1348,12 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(replacement.start, replacement.end, replacement.text.as_ref().unwrap(), &options);
+        let result = apply_text_transformation(
+            replacement.start,
+            replacement.end,
+            replacement.text.as_ref().unwrap(),
+            &options,
+        );
         assert_eq!(result.unwrap().text, Some("a, b; c".to_string()));
     }
 
@@ -1360,7 +1391,12 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(replacement.start, replacement.end, replacement.text.as_ref().unwrap(), &options);
+        let result = apply_text_transformation(
+            replacement.start,
+            replacement.end,
+            replacement.text.as_ref().unwrap(),
+            &options,
+        );
         assert_eq!(result.unwrap().text, Some("a, b; c".to_string()));
     }
 
@@ -1417,7 +1453,12 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(replacement.start, replacement.end, replacement.text.as_ref().unwrap(), &options);
+        let result = apply_text_transformation(
+            replacement.start,
+            replacement.end,
+            replacement.text.as_ref().unwrap(),
+            &options,
+        );
         assert_eq!(result.unwrap().text, Some("a, b; c\nd, e; f".to_string()));
     }
 
@@ -1438,7 +1479,10 @@ mod tests {
 
         let text = &source[replacement.start..replacement.end];
         let result = apply_text_transformation(replacement.start, replacement.end, text, &options);
-        assert_eq!(result.unwrap().text, Some("Hello, World\nFoo; Bar".to_string()));
+        assert_eq!(
+            result.unwrap().text,
+            Some("Hello, World\nFoo; Bar".to_string())
+        );
     }
 
     #[test]
@@ -1475,7 +1519,12 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformation(replacement.start, replacement.end, replacement.text.as_ref().unwrap(), &options);
+        let result = apply_text_transformation(
+            replacement.start,
+            replacement.end,
+            replacement.text.as_ref().unwrap(),
+            &options,
+        );
         assert!(result.is_none()); // No changes needed
     }
 

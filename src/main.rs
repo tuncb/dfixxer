@@ -110,22 +110,25 @@ fn process_file(
     let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
 
     // Helper function to apply text transformations to a replacement if enabled
-    let apply_text_transformation_if_enabled = |replacement: TextReplacement| -> Option<TextReplacement> {
-        if options.transformations.enable_text_transformations {
-            let text = replacement.text.as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or(&source[replacement.start..replacement.end]);
-            transform_text::apply_text_transformation(
-                replacement.start,
-                replacement.end,
-                text,
-                &options.text_changes,
-            )
-            .or(Some(replacement)) // Return original if no changes needed
-        } else {
-            Some(replacement)
-        }
-    };
+    let apply_text_transformation_if_enabled =
+        |replacement: TextReplacement| -> Option<TextReplacement> {
+            if options.transformations.enable_text_transformations {
+                let text = replacement
+                    .text
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or(&source[replacement.start..replacement.end]);
+                transform_text::apply_text_transformation(
+                    replacement.start,
+                    replacement.end,
+                    text,
+                    &options.text_changes,
+                )
+                .or(Some(replacement)) // Return original if no changes needed
+            } else {
+                Some(replacement)
+            }
+        };
 
     // Time transformation
     let mut replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
