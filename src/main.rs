@@ -1,9 +1,9 @@
 mod dfixxer_error;
 use dfixxer_error::DFixxerError;
 mod arguments;
-use arguments::{Command, parse_args, expand_filename_pattern};
+use arguments::{Command, expand_filename_pattern, parse_args};
 mod options;
-use options::{Options, should_exclude_file, find_custom_config_for_file};
+use options::{Options, find_custom_config_for_file, should_exclude_file};
 mod replacements;
 mod transform_procedure_section;
 mod transform_single_keyword_sections;
@@ -93,7 +93,8 @@ fn process_file(
         &initial_options.custom_config_patterns,
         filename,
         Some(config_path),
-    ).unwrap_or_else(|| config_path.to_string());
+    )
+    .unwrap_or_else(|| config_path.to_string());
 
     let options: Options = if final_config_path != config_path {
         log::info!("Loading custom configuration from: {}", final_config_path);
@@ -108,53 +109,47 @@ fn process_file(
     // Time parsing
     let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
 
+    // Helper function to apply text transformations to a replacement if enabled
+    let apply_text_transformation_if_enabled = |replacement: TextReplacement| -> TextReplacement {
+        if options.transformations.enable_text_transformations {
+            transform_text::apply_text_transformation(&source, replacement, &options.text_changes)
+        } else {
+            replacement
+        }
+    };
+
     // Time transformation
     let mut replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
         parse_result
             .code_sections
             .iter()
-            .filter_map(|code_section| match code_section.keyword.kind {
-                parser::Kind::Uses => {
-                    if options.transformations.enable_uses_section {
+            .filter_map(|code_section| {
+                let transformation = match code_section.keyword.kind {
+                    parser::Kind::Uses if options.transformations.enable_uses_section => {
                         transform_uses_section(code_section, &options, &source)
-                    } else {
-                        None
                     }
-                }
-                parser::Kind::Unit | parser::Kind::Program => {
-                    if options.transformations.enable_unit_program_section {
+                    parser::Kind::Unit | parser::Kind::Program
+                        if options.transformations.enable_unit_program_section =>
+                    {
                         transform_unit_program_section(code_section, &options, &source)
-                    } else {
-                        None
                     }
-                }
-                parser::Kind::Interface
-                | parser::Kind::Implementation
-                | parser::Kind::Initialization
-                | parser::Kind::Finalization => {
-                    if options.transformations.enable_single_keyword_sections {
+                    parser::Kind::Interface
+                    | parser::Kind::Implementation
+                    | parser::Kind::Initialization
+                    | parser::Kind::Finalization
+                        if options.transformations.enable_single_keyword_sections =>
+                    {
                         transform_single_keyword_section(&source, code_section, &options)
-                    } else {
-                        None
                     }
-                }
-                parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration => {
-                    if options.transformations.enable_procedure_section {
-                        if let Some(replacement) = transform_procedure_section(code_section, &options, &source) {
-                            // Apply text transformations to procedure replacements if enabled
-                            if options.transformations.enable_text_transformations {
-                                Some(transform_text::apply_text_transformation(&source, replacement, &options.text_changes))
-                            } else {
-                                Some(replacement)
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
+                    parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration
+                        if options.transformations.enable_procedure_section =>
+                    {
+                        transform_procedure_section(code_section, &options, &source)
+                            .map(apply_text_transformation_if_enabled)
                     }
-                }
-                _ => None,
+                    _ => None,
+                };
+                transformation
             })
             .collect()
     });
@@ -170,7 +165,11 @@ fn process_file(
                 .map(|replacement| {
                     // If this is an identity replacement (text is None), apply text transformations
                     if replacement.text.is_none() {
-                        transform_text::apply_text_transformation(&source, replacement, &options.text_changes)
+                        transform_text::apply_text_transformation(
+                            &source,
+                            replacement,
+                            &options.text_changes,
+                        )
                     } else {
                         // This is a structural or already-transformed replacement, keep as-is
                         replacement
@@ -206,14 +205,17 @@ fn run() -> Result<i32, DFixxerError> {
             let options = Options::load_or_default(config_path);
 
             // Filter out excluded files
-            filenames.into_iter().filter(|filename| {
-                if should_exclude_file(&options.exclude_files, filename, Some(config_path)) {
-                    log::info!("File '{}' is excluded by configuration, skipping", filename);
-                    false
-                } else {
-                    true
-                }
-            }).collect()
+            filenames
+                .into_iter()
+                .filter(|filename| {
+                    if should_exclude_file(&options.exclude_files, filename, Some(config_path)) {
+                        log::info!("File '{}' is excluded by configuration, skipping", filename);
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect()
         }
         _ => filenames,
     };
@@ -233,8 +235,8 @@ fn run() -> Result<i32, DFixxerError> {
         if arguments.multi {
             match &arguments.command {
                 Command::CheckFile | Command::Parse | Command::ParseDebug => {
-                    let absolute_path = std::fs::canonicalize(filename)
-                        .unwrap_or_else(|_| filename.into());
+                    let absolute_path =
+                        std::fs::canonicalize(filename).unwrap_or_else(|_| filename.into());
                     println!("Processing file: {}", absolute_path.display());
                 }
                 Command::UpdateFile => {
@@ -248,11 +250,8 @@ fn run() -> Result<i32, DFixxerError> {
             Command::UpdateFile => {
                 let mut timing = TimingCollector::new();
 
-                let (source, replacements) = process_file(
-                    filename,
-                    arguments.config_path.as_deref(),
-                    &mut timing,
-                )?;
+                let (source, replacements) =
+                    process_file(filename, arguments.config_path.as_deref(), &mut timing)?;
 
                 // Time applying replacements
                 if !replacements.is_empty() {
@@ -268,11 +267,8 @@ fn run() -> Result<i32, DFixxerError> {
             Command::CheckFile => {
                 let mut timing = TimingCollector::new();
 
-                let (source, replacements) = process_file(
-                    filename,
-                    arguments.config_path.as_deref(),
-                    &mut timing,
-                )?;
+                let (source, replacements) =
+                    process_file(filename, arguments.config_path.as_deref(), &mut timing)?;
 
                 // Print replacements instead of applying them
                 print_replacements(&source, &replacements);
@@ -298,7 +294,7 @@ fn run() -> Result<i32, DFixxerError> {
                         }
                     }
                 } else {
-                    0  // Skip other files for init-config
+                    0 // Skip other files for init-config
                 }
             }
             Command::Parse => {
