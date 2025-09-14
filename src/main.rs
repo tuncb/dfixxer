@@ -112,8 +112,16 @@ fn process_file(
     // Helper function to apply text transformations to a replacement if enabled
     let apply_text_transformation_if_enabled = |replacement: TextReplacement| -> Option<TextReplacement> {
         if options.transformations.enable_text_transformations {
-            transform_text::apply_text_transformation(&source, &replacement, &options.text_changes)
-                .or(Some(replacement)) // Return original if no changes needed
+            let text = replacement.text.as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or(&source[replacement.start..replacement.end]);
+            transform_text::apply_text_transformation(
+                replacement.start,
+                replacement.end,
+                text,
+                &options.text_changes,
+            )
+            .or(Some(replacement)) // Return original if no changes needed
         } else {
             Some(replacement)
         }
@@ -166,9 +174,11 @@ fn process_file(
                 .filter_map(|replacement| {
                     // If this is an identity replacement (text is None), apply text transformations
                     if replacement.text.is_none() {
+                        let text = &source[replacement.start..replacement.end];
                         transform_text::apply_text_transformation(
-                            &source,
-                            &replacement,
+                            replacement.start,
+                            replacement.end,
+                            text,
                             &options.text_changes,
                         )
                         .or(Some(replacement)) // Keep original if no changes needed
