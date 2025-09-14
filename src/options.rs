@@ -447,7 +447,11 @@ impl Default for Options {
 ///
 /// # Returns
 /// * `Some(pattern)` if the file matches a pattern, `None` otherwise
-fn match_file_patterns(patterns: &[String], file_path: &str, config_path: Option<&str>) -> Option<String> {
+fn match_file_patterns(
+    patterns: &[String],
+    file_path: &str,
+    config_path: Option<&str>,
+) -> Option<String> {
     if patterns.is_empty() {
         return None;
     }
@@ -466,17 +470,13 @@ fn match_file_patterns(patterns: &[String], file_path: &str, config_path: Option
 
     // Try to make the file path relative to the base directory
     let relative_path = if file_path.is_absolute() {
-        file_path
-            .strip_prefix(&base_dir)
-            .unwrap_or(file_path)
+        file_path.strip_prefix(&base_dir).unwrap_or(file_path)
     } else {
         file_path
     };
 
     // Convert to string for pattern matching, normalize separators to forward slashes
-    let path_str = relative_path
-        .to_string_lossy()
-        .replace('\\', "/");
+    let path_str = relative_path.to_string_lossy().replace('\\', "/");
 
     // Check each pattern
     for pattern_str in patterns {
@@ -507,7 +507,11 @@ fn match_file_patterns(patterns: &[String], file_path: &str, config_path: Option
 ///
 /// # Returns
 /// * `true` if the file should be excluded, `false` otherwise
-pub fn should_exclude_file(exclude_patterns: &[String], file_path: &str, config_path: Option<&str>) -> bool {
+pub fn should_exclude_file(
+    exclude_patterns: &[String],
+    file_path: &str,
+    config_path: Option<&str>,
+) -> bool {
     if let Some(pattern) = match_file_patterns(exclude_patterns, file_path, config_path) {
         log::info!("File '{}' excluded by pattern '{}'", file_path, pattern);
         true
@@ -527,12 +531,19 @@ pub fn should_exclude_file(exclude_patterns: &[String], file_path: &str, config_
 ///
 /// # Returns
 /// * `Some(config_path)` if the file matches a pattern, `None` otherwise
-pub fn find_custom_config_for_file(custom_patterns: &[(String, String)], file_path: &str, config_path: Option<&str>) -> Option<String> {
+pub fn find_custom_config_for_file(
+    custom_patterns: &[(String, String)],
+    file_path: &str,
+    config_path: Option<&str>,
+) -> Option<String> {
     if custom_patterns.is_empty() {
         return None;
     }
 
-    let patterns: Vec<String> = custom_patterns.iter().map(|(pattern, _)| pattern.clone()).collect();
+    let patterns: Vec<String> = custom_patterns
+        .iter()
+        .map(|(pattern, _)| pattern.clone())
+        .collect();
 
     if let Some(matched_pattern) = match_file_patterns(&patterns, file_path, config_path) {
         // Find the config path for the matched pattern
@@ -544,7 +555,10 @@ pub fn find_custom_config_for_file(custom_patterns: &[(String, String)], file_pa
                 } else if let Some(current_config) = config_path {
                     // Make it relative to the current config file's directory
                     if let Some(config_dir) = Path::new(current_config).parent() {
-                        config_dir.join(custom_config_path).to_string_lossy().to_string()
+                        config_dir
+                            .join(custom_config_path)
+                            .to_string_lossy()
+                            .to_string()
                     } else {
                         custom_config_path.clone()
                     }
@@ -552,8 +566,12 @@ pub fn find_custom_config_for_file(custom_patterns: &[(String, String)], file_pa
                     custom_config_path.clone()
                 };
 
-                log::info!("File '{}' matched custom config pattern '{}', using config '{}'",
-                          file_path, pattern, resolved_path);
+                log::info!(
+                    "File '{}' matched custom config pattern '{}', using config '{}'",
+                    file_path,
+                    pattern,
+                    resolved_path
+                );
                 return Some(resolved_path);
             }
         }
@@ -626,10 +644,19 @@ mod tests {
     fn test_default_options() {
         let options = Options::default();
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new());
+        assert_eq!(
+            options.uses_section.uses_section_style,
+            UsesSectionStyle::CommaAtTheEnd
+        );
+        assert_eq!(
+            options.uses_section.override_sorting_order,
+            Vec::<String>::new()
+        );
         assert_eq!(options.exclude_files, Vec::<String>::new());
-        assert_eq!(options.custom_config_patterns, Vec::<(String, String)>::new());
+        assert_eq!(
+            options.custom_config_patterns,
+            Vec::<(String, String)>::new()
+        );
         assert!(!options.uses_section.module_names_to_update.is_empty());
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
@@ -640,10 +667,19 @@ mod tests {
     fn test_load_or_default_with_missing_file() {
         let options = Options::load_or_default("non_existent_file.toml");
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new());
+        assert_eq!(
+            options.uses_section.uses_section_style,
+            UsesSectionStyle::CommaAtTheEnd
+        );
+        assert_eq!(
+            options.uses_section.override_sorting_order,
+            Vec::<String>::new()
+        );
         assert_eq!(options.exclude_files, Vec::<String>::new());
-        assert_eq!(options.custom_config_patterns, Vec::<(String, String)>::new());
+        assert_eq!(
+            options.custom_config_patterns,
+            Vec::<(String, String)>::new()
+        );
         assert!(!options.uses_section.module_names_to_update.is_empty());
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
@@ -663,7 +699,10 @@ mod tests {
                 module_names_to_update: Vec::new(),
             },
             exclude_files: vec!["*.tmp".to_string(), "backup/*".to_string()],
-            custom_config_patterns: vec![("test/*.pas".to_string(), "test_config.toml".to_string())],
+            custom_config_patterns: vec![(
+                "test/*.pas".to_string(),
+                "test_config.toml".to_string(),
+            )],
             line_ending: LineEnding::Lf,
             transformations: TransformationOptions::default(),
             text_changes: TextChangeOptions {
@@ -690,9 +729,18 @@ mod tests {
             loaded_options.uses_section.override_sorting_order,
             vec!["test_error".to_string()]
         );
-        assert_eq!(loaded_options.uses_section.module_names_to_update, Vec::<String>::new());
-        assert_eq!(loaded_options.exclude_files, vec!["*.tmp".to_string(), "backup/*".to_string()]);
-        assert_eq!(loaded_options.custom_config_patterns, vec![("test/*.pas".to_string(), "test_config.toml".to_string())]);
+        assert_eq!(
+            loaded_options.uses_section.module_names_to_update,
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            loaded_options.exclude_files,
+            vec!["*.tmp".to_string(), "backup/*".to_string()]
+        );
+        assert_eq!(
+            loaded_options.custom_config_patterns,
+            vec![("test/*.pas".to_string(), "test_config.toml".to_string())]
+        );
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
         assert_eq!(loaded_options.text_changes.comma, SpaceOperation::NoChange);
         // Manual cleanup
@@ -719,8 +767,14 @@ line_ending = "Lf"
         // This should now parse successfully using defaults for missing fields
         let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.indentation, "    "); // From file
-        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd); // Default
-        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new()); // Default
+        assert_eq!(
+            options.uses_section.uses_section_style,
+            UsesSectionStyle::CommaAtTheEnd
+        ); // Default
+        assert_eq!(
+            options.uses_section.override_sorting_order,
+            Vec::<String>::new()
+        ); // Default
         assert!(!options.uses_section.module_names_to_update.is_empty()); // Default
         assert_eq!(options.uses_section.module_names_to_update.len(), 258); // Default
         assert_eq!(options.line_ending, LineEnding::Lf); // From file
@@ -781,8 +835,14 @@ enable_uses_section = false
 
         let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new());
+        assert_eq!(
+            options.uses_section.uses_section_style,
+            UsesSectionStyle::CommaAtTheEnd
+        );
+        assert_eq!(
+            options.uses_section.override_sorting_order,
+            Vec::<String>::new()
+        );
         assert!(!options.uses_section.module_names_to_update.is_empty());
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
@@ -819,12 +879,24 @@ enable_uses_section = false
             "backup*.pas".to_string(),
         ];
         assert!(should_exclude_file(&multiple_patterns, "file.tmp", None));
-        assert!(should_exclude_file(&multiple_patterns, "test/file.pas", None));
-        assert!(should_exclude_file(&multiple_patterns, "backup_old.pas", None));
+        assert!(should_exclude_file(
+            &multiple_patterns,
+            "test/file.pas",
+            None
+        ));
+        assert!(should_exclude_file(
+            &multiple_patterns,
+            "backup_old.pas",
+            None
+        ));
         assert!(!should_exclude_file(&multiple_patterns, "normal.pas", None));
 
         // Test with path normalization
-        assert!(should_exclude_file(&multiple_patterns, "test\\file.pas", None));
+        assert!(should_exclude_file(
+            &multiple_patterns,
+            "test\\file.pas",
+            None
+        ));
     }
 
     #[test]
@@ -833,8 +905,16 @@ enable_uses_section = false
 
         // Test relative to config directory
         let config_path = "project/dfixxer.toml";
-        assert!(should_exclude_file(&patterns, "test/file.pas", Some(config_path)));
-        assert!(!should_exclude_file(&patterns, "src/file.pas", Some(config_path)));
+        assert!(should_exclude_file(
+            &patterns,
+            "test/file.pas",
+            Some(config_path)
+        ));
+        assert!(!should_exclude_file(
+            &patterns,
+            "src/file.pas",
+            Some(config_path)
+        ));
     }
 
     #[test]
@@ -901,19 +981,37 @@ enable_uses_section = true
 
         // Test with single pattern match
         let single_pattern = vec![("test/*.pas".to_string(), "custom.toml".to_string())];
-        let result = find_custom_config_for_file(&single_pattern, "test/file.pas", Some("project/dfixxer.toml"));
+        let result = find_custom_config_for_file(
+            &single_pattern,
+            "test/file.pas",
+            Some("project/dfixxer.toml"),
+        );
         // Normalize path separators for cross-platform compatibility
-        let expected = Path::new("project").join("custom.toml").to_string_lossy().to_string();
+        let expected = Path::new("project")
+            .join("custom.toml")
+            .to_string_lossy()
+            .to_string();
         assert_eq!(result, Some(expected));
 
         // Test with absolute path
-        let absolute_pattern = vec![("test/*.pas".to_string(), "/absolute/custom.toml".to_string())];
-        let result = find_custom_config_for_file(&absolute_pattern, "test/file.pas", Some("project/dfixxer.toml"));
+        let absolute_pattern = vec![(
+            "test/*.pas".to_string(),
+            "/absolute/custom.toml".to_string(),
+        )];
+        let result = find_custom_config_for_file(
+            &absolute_pattern,
+            "test/file.pas",
+            Some("project/dfixxer.toml"),
+        );
         assert_eq!(result, Some("/absolute/custom.toml".to_string()));
 
         // Test with no match
         let no_match_pattern = vec![("other/*.pas".to_string(), "custom.toml".to_string())];
-        let result = find_custom_config_for_file(&no_match_pattern, "test/file.pas", Some("project/dfixxer.toml"));
+        let result = find_custom_config_for_file(
+            &no_match_pattern,
+            "test/file.pas",
+            Some("project/dfixxer.toml"),
+        );
         assert!(result.is_none());
 
         // Test with multiple patterns
@@ -922,8 +1020,15 @@ enable_uses_section = true
             ("src/*.pas".to_string(), "src_custom.toml".to_string()),
             ("backup*.pas".to_string(), "backup_custom.toml".to_string()),
         ];
-        let result = find_custom_config_for_file(&multiple_patterns, "src/main.pas", Some("project/dfixxer.toml"));
-        let expected = Path::new("project").join("src_custom.toml").to_string_lossy().to_string();
+        let result = find_custom_config_for_file(
+            &multiple_patterns,
+            "src/main.pas",
+            Some("project/dfixxer.toml"),
+        );
+        let expected = Path::new("project")
+            .join("src_custom.toml")
+            .to_string_lossy()
+            .to_string();
         assert_eq!(result, Some(expected));
 
         // Test without base config path
@@ -955,9 +1060,24 @@ enable_uses_section = true
 
         let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.custom_config_patterns.len(), 3);
-        assert_eq!(options.custom_config_patterns[0], ("test/*.pas".to_string(), "test_config.toml".to_string()));
-        assert_eq!(options.custom_config_patterns[1], ("src/**/*.pas".to_string(), "../src/dfixxer.toml".to_string()));
-        assert_eq!(options.custom_config_patterns[2], ("legacy/*.pas".to_string(), "/absolute/legacy_config.toml".to_string()));
+        assert_eq!(
+            options.custom_config_patterns[0],
+            ("test/*.pas".to_string(), "test_config.toml".to_string())
+        );
+        assert_eq!(
+            options.custom_config_patterns[1],
+            (
+                "src/**/*.pas".to_string(),
+                "../src/dfixxer.toml".to_string()
+            )
+        );
+        assert_eq!(
+            options.custom_config_patterns[2],
+            (
+                "legacy/*.pas".to_string(),
+                "/absolute/legacy_config.toml".to_string()
+            )
+        );
 
         // Clean up
         fs::remove_file(&file_path).ok();

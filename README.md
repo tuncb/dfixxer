@@ -216,6 +216,8 @@ if ($totalReplacements -eq 0) {
 
 The configuration file uses TOML format. All keys are optional; unspecified keys use built-in defaults.
 
+> **⚠️ Breaking Change in v0.6.0**: Uses section configuration options (`uses_section_style`, `override_sorting_order`, and `module_names_to_update`) have been moved under a `[uses_section]` section for better organization. Update your configuration files accordingly.
+
 ### Configuration Options
 
 #### `indentation` (string)
@@ -225,13 +227,6 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `"    "` (four spaces)
   - `"\t"` (tab character)
 
-#### `uses_section_style` (enum)
-- **Purpose**: Controls comma placement in formatted uses sections
-- **Values**:
-  - `"CommaAtTheEnd"` - Comma appears at the end of each line (default)
-  - `"CommaAtTheBeginning"` - Comma appears at the start of each line
-- **Default**: `"CommaAtTheEnd"`
-
 #### `line_ending` (enum)
 - **Purpose**: Controls line ending style in output
 - **Values**:
@@ -239,19 +234,6 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `"Crlf"` - Force Windows-style line endings (\r\n)
   - `"Lf"` - Force Unix-style line endings (\n)
 - **Default**: `"Auto"`
-
-#### `override_sorting_order` (array of strings)
-- **Purpose**: Namespace prefixes to prioritize during sorting
-- **Behavior**: Units starting with these prefixes (followed by a dot) are sorted first among themselves, then remaining units are sorted alphabetically
-- **Default**: `[]` (empty array)
-- **Example**: `["System", "Vcl", "FireDAC"]`
-
-#### `module_names_to_update` (array of strings)
-- **Purpose**: Map short unit names to fully-qualified names
-- **Format**: Each entry is `"Prefix:ShortName"`
-- **Behavior**: When the tool encounters `ShortName`, it rewrites it to `Prefix.ShortName` before sorting/formatting
-- **Default**: Extensive list of 258 built-in mappings for System, Winapi, and other common namespaces
-- **Example**: `["System:Classes", "Vcl:Dialogs", "FireDAC:Comp.Client"]`
 
 #### `exclude_files` (array of strings)
 - **Purpose**: File patterns to exclude from processing
@@ -266,6 +248,30 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 - **Behavior**: Files matching the pattern use the specified config file
 - **Default**: `[]` (empty array)
 - **Example**: `[["test/*.pas", "test_config.toml"], ["legacy/*.pas", "/absolute/legacy_config.toml"]]`
+
+#### `uses_section` (object)
+- **Purpose**: Configuration options specific to uses section formatting
+- **Properties**:
+
+  ##### `uses_section_style` (enum)
+  - **Purpose**: Controls comma placement in formatted uses sections
+  - **Values**:
+    - `"CommaAtTheEnd"` - Comma appears at the end of each line (default)
+    - `"CommaAtTheBeginning"` - Comma appears at the start of each line
+  - **Default**: `"CommaAtTheEnd"`
+
+  ##### `override_sorting_order` (array of strings)
+  - **Purpose**: Namespace prefixes to prioritize during sorting
+  - **Behavior**: Units starting with these prefixes (followed by a dot) are sorted first among themselves, then remaining units are sorted alphabetically
+  - **Default**: `[]` (empty array)
+  - **Example**: `["System", "Vcl", "FireDAC"]`
+
+  ##### `module_names_to_update` (array of strings)
+  - **Purpose**: Map short unit names to fully-qualified names
+  - **Format**: Each entry is `"Prefix:ShortName"`
+  - **Behavior**: When the tool encounters `ShortName`, it rewrites it to `Prefix.ShortName` before sorting/formatting
+  - **Default**: Extensive list of 258 built-in mappings for System, Winapi, and other common namespaces
+  - **Example**: `["System:Classes", "Vcl:Dialogs", "FireDAC:Comp.Client"]`
 
 #### `transformations` (object)
 - **Purpose**: Controls which transformation features are enabled
@@ -318,11 +324,22 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 # Use 4-space indentation
 indentation = "    "
 
-# Put commas at the beginning of lines
-uses_section_style = "CommaAtTheBeginning"
-
 # Force Unix-style line endings
 line_ending = "Lf"
+
+# Exclude temporary and backup files
+exclude_files = ["*.tmp", "backup/*", "test_*.pas"]
+
+# Use different configs for different file patterns
+custom_config_patterns = [
+    ["legacy/*.pas", "legacy_config.toml"],
+    ["test/**/*.pas", "test_config.toml"]
+]
+
+# Uses section configuration
+[uses_section]
+# Put commas at the beginning of lines
+uses_section_style = "CommaAtTheBeginning"
 
 # Prioritize System and Vcl namespaces
 override_sorting_order = ["System", "Vcl", "FireDAC"]
@@ -337,15 +354,6 @@ module_names_to_update = [
     "Vcl:Dialogs",
     "FireDAC:Comp.Client",
     "FireDAC:Stan.Def"
-]
-
-# Exclude temporary and backup files
-exclude_files = ["*.tmp", "backup/*", "test_*.pas"]
-
-# Use different configs for different file patterns
-custom_config_patterns = [
-    ["legacy/*.pas", "legacy_config.toml"],
-    ["test/**/*.pas", "test_config.toml"]
 ]
 
 # Control which transformations are enabled
@@ -418,6 +426,8 @@ uses
 ### Configuration Used for Above Examples
 ```toml
 indentation = "    "
+
+[uses_section]
 override_sorting_order = ["System", "Vcl"]
 module_names_to_update = [
     "System:Classes",
