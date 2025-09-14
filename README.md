@@ -1,7 +1,6 @@
 # dfixxer
 
-
-Version: 0.1.0
+Version: 0.5.0
 
 A command-line tool that reformats Delphi/Pascal files.
 
@@ -200,6 +199,20 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 - **Default**: Extensive list of 258 built-in mappings for System, Winapi, and other common namespaces
 - **Example**: `["System:Classes", "Vcl:Dialogs", "FireDAC:Comp.Client"]`
 
+#### `exclude_files` (array of strings)
+- **Purpose**: File patterns to exclude from processing
+- **Format**: Glob patterns (e.g., `"*.tmp"`, `"backup/*"`)
+- **Behavior**: Files matching these patterns will be skipped
+- **Default**: `[]` (empty array)
+- **Example**: `["*.tmp", "backup/*", "test_*.pas"]`
+
+#### `custom_config_patterns` (array of pattern-config pairs)
+- **Purpose**: Use different configuration files for specific file patterns
+- **Format**: Array of `[pattern, config_path]` pairs
+- **Behavior**: Files matching the pattern use the specified config file
+- **Default**: `[]` (empty array)
+- **Example**: `[["test/*.pas", "test_config.toml"], ["legacy/*.pas", "/absolute/legacy_config.toml"]]`
+
 #### `transformations` (object)
 - **Purpose**: Controls which transformation features are enabled
 - **Default**: All transformations enabled
@@ -208,6 +221,42 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `enable_unit_program_section` (boolean) - Enable unit/program section processing (default: `true`)
   - `enable_single_keyword_sections` (boolean) - Enable single keyword section processing (default: `true`)
   - `enable_procedure_section` (boolean) - Enable procedure section processing (default: `true`)
+  - `enable_text_transformations` (boolean) - Enable text formatting transformations (default: `true`)
+
+#### `text_changes` (object)
+- **Purpose**: Controls spacing around various operators and punctuation
+- **Default**: Optimized defaults for Pascal code formatting
+- **Properties**:
+  - Punctuation:
+    - `comma` - Comma spacing (default: `"After"`)
+    - `semi_colon` - Semicolon spacing (default: `"After"`)
+    - `colon` - Colon spacing (default: `"After"`)
+    - `colon_numeric_exception` - Skip colon spacing for numeric ranges like `1:10` (default: `true`)
+  - Comparison operators:
+    - `lt` - Less than `<` (default: `"BeforeAndAfter"`)
+    - `eq` - Equals `=` (default: `"BeforeAndAfter"`)
+    - `neq` - Not equals `<>` (default: `"BeforeAndAfter"`)
+    - `gt` - Greater than `>` (default: `"BeforeAndAfter"`)
+    - `lte` - Less than or equal `<=` (default: `"BeforeAndAfter"`)
+    - `gte` - Greater than or equal `>=` (default: `"BeforeAndAfter"`)
+  - Arithmetic operators:
+    - `add` - Addition `+` (default: `"BeforeAndAfter"`)
+    - `sub` - Subtraction `-` (default: `"BeforeAndAfter"`)
+    - `mul` - Multiplication `*` (default: `"BeforeAndAfter"`)
+    - `fdiv` - Division `/` (default: `"BeforeAndAfter"`)
+  - Assignment operators:
+    - `assign` - Assignment `:=` (default: `"BeforeAndAfter"`)
+    - `assign_add` - Add assignment `+=` (default: `"BeforeAndAfter"`)
+    - `assign_sub` - Subtract assignment `-=` (default: `"BeforeAndAfter"`)
+    - `assign_mul` - Multiply assignment `*=` (default: `"BeforeAndAfter"`)
+    - `assign_div` - Divide assignment `/=` (default: `"BeforeAndAfter"`)
+  - Other:
+    - `trim_trailing_whitespace` - Remove trailing whitespace (default: `true`)
+- **Space Operations**:
+  - `"NoChange"` - Leave spacing as-is
+  - `"Before"` - Add space before operator
+  - `"After"` - Add space after operator
+  - `"BeforeAndAfter"` - Add spaces before and after operator
 
 ### Complete Example Configuration
 
@@ -236,12 +285,45 @@ module_names_to_update = [
     "FireDAC:Stan.Def"
 ]
 
+# Exclude temporary and backup files
+exclude_files = ["*.tmp", "backup/*", "test_*.pas"]
+
+# Use different configs for different file patterns
+custom_config_patterns = [
+    ["legacy/*.pas", "legacy_config.toml"],
+    ["test/**/*.pas", "test_config.toml"]
+]
+
 # Control which transformations are enabled
 [transformations]
 enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_text_transformations = true
+
+# Control text formatting and spacing
+[text_changes]
+comma = "After"
+semi_colon = "After"
+colon = "After"
+colon_numeric_exception = true
+lt = "BeforeAndAfter"
+eq = "BeforeAndAfter"
+neq = "BeforeAndAfter"
+gt = "BeforeAndAfter"
+lte = "BeforeAndAfter"
+gte = "BeforeAndAfter"
+add = "BeforeAndAfter"
+sub = "BeforeAndAfter"
+mul = "BeforeAndAfter"
+fdiv = "BeforeAndAfter"
+assign = "BeforeAndAfter"
+assign_add = "BeforeAndAfter"
+assign_sub = "BeforeAndAfter"
+assign_mul = "BeforeAndAfter"
+assign_div = "BeforeAndAfter"
+trim_trailing_whitespace = true
 ```
 
 ### Configuration File Discovery
