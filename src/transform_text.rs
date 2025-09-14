@@ -1,31 +1,24 @@
 use crate::options::{SpaceOperation, TextChangeOptions};
 use crate::replacements::TextReplacement;
 
-/// Apply text transformations based on the given options to the replacements
-pub fn apply_text_transformations(
+/// Apply text transformations based on the given options to a single replacement
+pub fn apply_text_transformation(
     original_source: &str,
-    mut replacements: Vec<TextReplacement>,
+    mut replacement: TextReplacement,
     options: &TextChangeOptions,
-) -> Vec<TextReplacement> {
-    for replacement in &mut replacements {
-        // Skip final replacements that shouldn't be modified further
-        if replacement.is_final {
-            continue;
-        }
-
-        if let Some(ref mut text) = replacement.text {
-            *text = apply_text_changes(text, options);
-        } else {
-            // For identity replacements, we need to get the original text,
-            // apply changes, and if changed, convert to a regular replacement
-            let original_text = &original_source[replacement.start..replacement.end];
-            let modified_text = apply_text_changes(original_text, options);
-            if modified_text != original_text {
-                replacement.text = Some(modified_text);
-            }
+) -> TextReplacement {
+    if let Some(ref mut text) = replacement.text {
+        *text = apply_text_changes(text, options);
+    } else {
+        // For identity replacements, we need to get the original text,
+        // apply changes, and if changed, convert to a regular replacement
+        let original_text = &original_source[replacement.start..replacement.end];
+        let modified_text = apply_text_changes(original_text, options);
+        if modified_text != original_text {
+            replacement.text = Some(modified_text);
         }
     }
-    replacements
+    replacement
 }
 
 /// Helper function to determine if space should be added before a character/operator
@@ -1164,14 +1157,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_apply_text_transformations_comma_only_with_identity_replacement() {
+    fn test_apply_text_transformation_comma_only_with_identity_replacement() {
         let source = "Hello,World";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: 11,
             text: None, // Identity replacement
-            is_final: false,
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::NoChange,
@@ -1179,20 +1171,18 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("Hello, World".to_string()));
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("Hello, World".to_string()));
     }
 
     #[test]
-    fn test_apply_text_transformations_comma_only_with_regular_replacement() {
+    fn test_apply_text_transformation_comma_only_with_regular_replacement() {
         let source = "Original";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: 8,
             text: Some("A,B,C".to_string()),
-            is_final: false,
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::NoChange,
@@ -1200,34 +1190,13 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("A, B, C".to_string()));
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("A, B, C".to_string()));
     }
 
     #[test]
-    fn test_apply_text_transformations_comma_only_mixed_replacements() {
+    fn test_apply_text_transformation_mixed_replacements() {
         let source = "Hello,World and Foo,Bar";
-        let replacements = vec![
-            TextReplacement {
-                start: 0,
-                end: 11,
-                text: None, // Identity replacement that needs modification
-                is_final: false,
-            },
-            TextReplacement {
-                start: 11,
-                end: 15,
-                text: Some(" and ".to_string()), // Regular replacement, no commas
-                is_final: false,
-            },
-            TextReplacement {
-                start: 15,
-                end: 23,
-                text: Some("Baz,Qux".to_string()), // Regular replacement with comma
-                is_final: false,
-            },
-        ];
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::NoChange,
@@ -1235,30 +1204,37 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0].text, Some("Hello, World".to_string()));
-        assert_eq!(result[1].text, Some(" and ".to_string()));
-        assert_eq!(result[2].text, Some("Baz, Qux".to_string()));
+        // Test identity replacement
+        let replacement1 = TextReplacement {
+            start: 0,
+            end: 11,
+            text: None, // Identity replacement that needs modification
+        };
+        let result1 = apply_text_transformation(source, replacement1, &options);
+        assert_eq!(result1.text, Some("Hello, World".to_string()));
+
+        // Test regular replacement without commas
+        let replacement2 = TextReplacement {
+            start: 11,
+            end: 15,
+            text: Some(" and ".to_string()), // Regular replacement, no commas
+        };
+        let result2 = apply_text_transformation(source, replacement2, &options);
+        assert_eq!(result2.text, Some(" and ".to_string()));
+
+        // Test regular replacement with comma
+        let replacement3 = TextReplacement {
+            start: 15,
+            end: 23,
+            text: Some("Baz,Qux".to_string()), // Regular replacement with comma
+        };
+        let result3 = apply_text_transformation(source, replacement3, &options);
+        assert_eq!(result3.text, Some("Baz, Qux".to_string()));
     }
 
     #[test]
-    fn test_apply_text_transformations_comma_only_skips_final_replacements() {
+    fn test_apply_text_transformation_uses_content() {
         let source = "Hello,World and Foo,Bar";
-        let replacements = vec![
-            TextReplacement {
-                start: 0,
-                end: 11,
-                text: Some("uses,System".to_string()), // Final replacement (uses section)
-                is_final: true,
-            },
-            TextReplacement {
-                start: 11,
-                end: 23,
-                text: Some(" test,code".to_string()), // Regular replacement
-                is_final: false,
-            },
-        ];
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::NoChange,
@@ -1266,14 +1242,24 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 2);
-        // Final replacement should be unchanged
-        assert_eq!(result[0].text, Some("uses,System".to_string()));
-        assert_eq!(result[0].is_final, true);
-        // Regular replacement should have spaces added
-        assert_eq!(result[1].text, Some(" test, code".to_string()));
-        assert_eq!(result[1].is_final, false);
+        // Test replacement with uses content
+        let uses_replacement = TextReplacement {
+            start: 0,
+            end: 11,
+            text: Some("uses,System".to_string()),
+        };
+        let result1 = apply_text_transformation(source, uses_replacement, &options);
+        // The function should transform it
+        assert_eq!(result1.text, Some("uses, System".to_string()));
+
+        // Test regular replacement
+        let regular_replacement = TextReplacement {
+            start: 11,
+            end: 23,
+            text: Some(" test,code".to_string()),
+        };
+        let result2 = apply_text_transformation(source, regular_replacement, &options);
+        assert_eq!(result2.text, Some(" test, code".to_string()));
     }
 
     #[test]
@@ -1329,14 +1315,13 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_text_transformations_with_options() {
+    fn test_apply_text_transformation_with_options() {
         let source = "Original";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: 8,
             text: Some("a,b;c".to_string()),
-            is_final: false,
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1344,20 +1329,18 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("a, b; c".to_string()));
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("a, b; c".to_string()));
     }
 
     #[test]
-    fn test_apply_text_transformations_identity_replacement() {
+    fn test_apply_text_transformation_identity_replacement() {
         let source = "a,b;c";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: 5,
             text: None, // Identity replacement
-            is_final: false,
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1365,20 +1348,18 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("a, b; c".to_string()));
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("a, b; c".to_string()));
     }
 
     #[test]
-    fn test_apply_text_transformations_skips_final_replacements() {
+    fn test_apply_text_transformation_regular_replacement() {
         let source = "Original";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: 8,
             text: Some("a,b;c".to_string()),
-            is_final: true, // Final replacement should not be modified
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1386,10 +1367,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("a,b;c".to_string())); // Unchanged
-        assert_eq!(result[0].is_final, true);
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("a, b; c".to_string()));
     }
 
     #[test]
@@ -1432,14 +1411,13 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_text_transformations_with_trim_trailing_whitespace() {
+    fn test_apply_text_transformation_with_trim_trailing_whitespace() {
         let source = "Original   ";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: 11,
             text: Some("a,b;c   \nd,e;f\t\t".to_string()),
-            is_final: false,
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1447,20 +1425,18 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("a, b; c\nd, e; f".to_string()));
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("a, b; c\nd, e; f".to_string()));
     }
 
     #[test]
-    fn test_apply_text_transformations_identity_with_trim() {
+    fn test_apply_text_transformation_identity_with_trim() {
         let source = "Hello,World   \nFoo;Bar\t\t";
-        let replacements = vec![TextReplacement {
+        let replacement = TextReplacement {
             start: 0,
             end: source.len(),
             text: None, // Identity replacement
-            is_final: false,
-        }];
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1468,9 +1444,8 @@ mod tests {
             ..Default::default()
         };
 
-        let result = apply_text_transformations(source, replacements, &options);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].text, Some("Hello, World\nFoo; Bar".to_string()));
+        let result = apply_text_transformation(source, replacement, &options);
+        assert_eq!(result.text, Some("Hello, World\nFoo; Bar".to_string()));
     }
 
     // --- Tests for edge cases and bug fixes ---

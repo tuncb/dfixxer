@@ -62,7 +62,6 @@ pub fn transform_unit_program_section(
         replacement_start,
         semicolon_end_byte,
         replacement_text,
-        false,
     )
 }
 

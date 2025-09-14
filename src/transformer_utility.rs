@@ -49,13 +49,12 @@ pub fn adjust_replacement_for_line_position(
     (replacement_start, replacement_text)
 }
 
-/// Create a TextReplacement if the replacement text differs from the original, with custom is_final flag
+/// Create a TextReplacement if the replacement text differs from the original
 pub fn create_text_replacement_if_different(
     source: &str,
     replacement_start: usize,
     replacement_end: usize,
     replacement_text: String,
-    is_final: bool,
 ) -> Option<TextReplacement> {
     let original_text = &source[replacement_start..replacement_end];
     if replacement_text == original_text {
@@ -66,7 +65,6 @@ pub fn create_text_replacement_if_different(
         start: replacement_start,
         end: replacement_end,
         text: Some(replacement_text),
-        is_final,
     })
 }
 
@@ -159,7 +157,6 @@ mod tests {
             0,
             source.len(),
             "original text".to_string(),
-            false,
         );
         assert!(result.is_none());
     }
@@ -172,13 +169,11 @@ mod tests {
             0,
             source.len(),
             "new text".to_string(),
-            false,
         );
         assert!(result.is_some());
         let replacement = result.unwrap();
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 13);
         assert_eq!(replacement.text, Some("new text".to_string()));
-        assert_eq!(replacement.is_final, false);
     }
 }

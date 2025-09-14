@@ -19,7 +19,6 @@ use parser::parse;
 
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
-use crate::transform_text::apply_text_transformations;
 use crate::transform_unit_program_section::transform_unit_program_section;
 use crate::transform_uses_section::transform_uses_section;
 use std::collections::HashMap;
@@ -141,7 +140,16 @@ fn process_file(
                 }
                 parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration => {
                     if options.transformations.enable_procedure_section {
-                        transform_procedure_section(code_section, &options, &source)
+                        if let Some(replacement) = transform_procedure_section(code_section, &options, &source) {
+                            // Apply text transformations to procedure replacements if enabled
+                            if options.transformations.enable_text_transformations {
+                                Some(transform_text::apply_text_transformation(&source, replacement, &options.text_changes))
+                            } else {
+                                Some(replacement)
+                            }
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -151,12 +159,24 @@ fn process_file(
             .collect()
     });
 
-    // Apply text transformations if any are enabled
+    // Apply text transformations to identity replacements if enabled
     if options.transformations.enable_text_transformations {
         replacements = timing.time_operation("Text transformations", || {
-            // Fill gaps to get all text as replacements, then apply text transformations
-            let all_replacements = fill_gaps_with_identity_replacements(&source, replacements);
-            apply_text_transformations(&source, all_replacements, &options.text_changes)
+            // Fill gaps with identity replacements and apply text transformations to them
+            let all_with_identity = fill_gaps_with_identity_replacements(&source, replacements);
+
+            all_with_identity
+                .into_iter()
+                .map(|replacement| {
+                    // If this is an identity replacement (text is None), apply text transformations
+                    if replacement.text.is_none() {
+                        transform_text::apply_text_transformation(&source, replacement, &options.text_changes)
+                    } else {
+                        // This is a structural or already-transformed replacement, keep as-is
+                        replacement
+                    }
+                })
+                .collect()
         });
     }
 

@@ -20,7 +20,6 @@ pub fn transform_procedure_section(
         start: identifier_node.end_byte,
         end: identifier_node.end_byte, // Insert, don't replace
         text: Some("()".to_string()),
-        is_final: true,
     })
 }
 

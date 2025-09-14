@@ -1,11 +1,10 @@
 use crate::dfixxer_error::DFixxerError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TextReplacement {
     pub start: usize,
     pub end: usize,
     pub text: Option<String>, // None means use original text from source[start..end]
-    pub is_final: bool, // If true, this replacement should not be modified by further transformations
 }
 
 impl TextReplacement {
@@ -75,6 +74,7 @@ pub fn print_replacements(original_source: &str, replacements: &[TextReplacement
     }
 }
 
+
 /// Generate identity replacements for the gaps between existing replacements
 pub fn fill_gaps_with_identity_replacements(
     original_source: &str,
@@ -86,7 +86,6 @@ pub fn fill_gaps_with_identity_replacements(
             start: 0,
             end: original_source.len(),
             text: None, // Identity replacement - use original text
-            is_final: false,
         }];
     }
 
@@ -103,7 +102,6 @@ pub fn fill_gaps_with_identity_replacements(
                 start: last_end,
                 end: replacement.start,
                 text: None, // Identity replacement - use original text
-                is_final: false,
             });
         }
 
@@ -121,7 +119,6 @@ pub fn fill_gaps_with_identity_replacements(
             start: last_end,
             end: original_source.len(),
             text: None, // Identity replacement - use original text
-            is_final: false,
         });
     }
 
@@ -178,7 +175,6 @@ mod tests {
             start: 7,
             end: 12,
             text: Some("Rust".to_string()),
-            is_final: false,
         }];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 
@@ -205,13 +201,11 @@ mod tests {
                 start: 4,
                 end: 9,
                 text: Some("slow".to_string()),
-                is_final: false,
             },
             TextReplacement {
                 start: 10,
                 end: 15,
                 text: Some("green".to_string()),
-                is_final: false,
             },
         ];
         let result = fill_gaps_with_identity_replacements(source, replacements);
@@ -236,13 +230,11 @@ mod tests {
                 start: 1,
                 end: 3,
                 text: Some("XX".to_string()),
-                is_final: false,
             },
             TextReplacement {
                 start: 3,
                 end: 5,
                 text: Some("YY".to_string()),
-                is_final: false,
             },
         ];
         let result = fill_gaps_with_identity_replacements(source, replacements);
@@ -265,7 +257,6 @@ mod tests {
             start: 0,
             end: source.len(),
             text: Some("replaced".to_string()),
-            is_final: false,
         }];
         let result = fill_gaps_with_identity_replacements(source, replacements);
 

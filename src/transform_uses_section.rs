@@ -154,13 +154,12 @@ pub fn transform_uses_section(
         options,
     );
 
-    // Create the text replacement if different from original, marked as final
+    // Create the text replacement if different from original
     create_text_replacement_if_different(
         source,
         replacement_start,
         semicolon_end_byte,
         replacement_text,
-        true, // Mark uses section replacements as final
     )
 }
 
