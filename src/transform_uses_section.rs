@@ -9,7 +9,7 @@ use log::warn;
 // Formats the replacement text for a uses section given the modules and options.
 fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
     use crate::options::UsesSectionStyle;
-    match options.uses_section_style {
+    match options.uses_section.uses_section_style {
         UsesSectionStyle::CommaAtTheBeginning => {
             let mut lines = Vec::new();
             if let Some(first) = modules.get(0) {
@@ -47,7 +47,7 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
     let mut modules = modules.clone();
 
     // Apply module_names_to_update: e.g. "System:Classes" means replace "Classes" with "System.Classes"
-    for mapping in &options.module_names_to_update {
+    for mapping in &options.uses_section.module_names_to_update {
         if let Some((prefix, name)) = mapping.split_once(':') {
             for module in modules.iter_mut() {
                 if module == name {
@@ -57,7 +57,7 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
         }
     }
 
-    let override_namespaces = &options.override_sorting_order;
+    let override_namespaces = &options.uses_section.override_sorting_order;
     if override_namespaces.is_empty() {
         modules.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
         return modules;
@@ -175,7 +175,11 @@ mod tests {
         line_ending: crate::options::LineEnding,
     ) -> Options {
         Options {
-            uses_section_style: style,
+            uses_section: crate::options::UsesSectionOptions {
+                uses_section_style: style,
+                override_sorting_order: Vec::new(),
+                module_names_to_update: Vec::new(),
+            },
             indentation: indentation.to_string(),
             line_ending,
             // ...other fields with default values...
@@ -246,7 +250,7 @@ mod tests {
             "    ",
             crate::options::LineEnding::Crlf,
         );
-        options.override_sorting_order = vec!["System".to_string(), "Abc".to_string()];
+        options.uses_section.override_sorting_order = vec!["System".to_string(), "Abc".to_string()];
         let sorted = sort_modules(&modules, &options);
         let expected = vec!["Abc.B", "System.A", "A", "AbcB", "B", "SystemA"];
         let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
@@ -261,7 +265,7 @@ mod tests {
             "    ",
             crate::options::LineEnding::Crlf,
         );
-        options.override_sorting_order = vec![];
+        options.uses_section.override_sorting_order = vec![];
         let sorted = sort_modules(&modules, &options);
         let expected = vec!["A", "B", "C"];
         let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
@@ -280,7 +284,7 @@ mod tests {
             "    ",
             crate::options::LineEnding::Crlf,
         );
-        options.override_sorting_order = vec!["System".to_string()];
+        options.uses_section.override_sorting_order = vec!["System".to_string()];
         let sorted = sort_modules(&modules, &options);
         let expected = vec!["A.B", "SystemA.B", "X.Y"];
         let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();

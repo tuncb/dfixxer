@@ -1,4 +1,7 @@
 indentation = "  "
+line_ending = "Auto"
+
+[uses_section]
 uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = [
@@ -261,7 +264,6 @@ module_names_to_update = [
     "Winapi:msxmlIntf",
     "Winapi:oleacc",
 ]
-line_ending = "Auto"
 
 [transformations]
 enable_uses_section = true

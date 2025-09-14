@@ -113,48 +113,17 @@ impl Default for TextChangeOptions {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
-pub struct TransformationOptions {
-    pub enable_uses_section: bool,
-    pub enable_unit_program_section: bool,
-    pub enable_single_keyword_sections: bool,
-    pub enable_procedure_section: bool,
-    pub enable_text_transformations: bool,
-}
-
-impl Default for TransformationOptions {
-    fn default() -> Self {
-        TransformationOptions {
-            enable_uses_section: true,
-            enable_unit_program_section: true,
-            enable_single_keyword_sections: true,
-            enable_procedure_section: true,
-            enable_text_transformations: true,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Options {
-    pub indentation: String,
+pub struct UsesSectionOptions {
     pub uses_section_style: UsesSectionStyle,
     pub override_sorting_order: Vec<String>,
     pub module_names_to_update: Vec<String>,
-    pub line_ending: LineEnding,
-    pub transformations: TransformationOptions,
-    pub text_changes: TextChangeOptions,
-    pub exclude_files: Vec<String>,
-    pub custom_config_patterns: Vec<(String, String)>,
 }
 
-impl Default for Options {
+impl Default for UsesSectionOptions {
     fn default() -> Self {
-        Options {
-            indentation: "  ".to_string(),
+        UsesSectionOptions {
             uses_section_style: UsesSectionStyle::CommaAtTheEnd,
             override_sorting_order: Vec::new(),
-            exclude_files: Vec::new(),
-            custom_config_patterns: Vec::new(),
             module_names_to_update: vec![
                 "System:Actions".to_string(),
                 "System:Analytics.AppAnalytics".to_string(),
@@ -415,6 +384,51 @@ impl Default for Options {
                 "Winapi:msxmlIntf".to_string(),
                 "Winapi:oleacc".to_string(),
             ],
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TransformationOptions {
+    pub enable_uses_section: bool,
+    pub enable_unit_program_section: bool,
+    pub enable_single_keyword_sections: bool,
+    pub enable_procedure_section: bool,
+    pub enable_text_transformations: bool,
+}
+
+impl Default for TransformationOptions {
+    fn default() -> Self {
+        TransformationOptions {
+            enable_uses_section: true,
+            enable_unit_program_section: true,
+            enable_single_keyword_sections: true,
+            enable_procedure_section: true,
+            enable_text_transformations: true,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Options {
+    pub indentation: String,
+    pub uses_section: UsesSectionOptions,
+    pub line_ending: LineEnding,
+    pub transformations: TransformationOptions,
+    pub text_changes: TextChangeOptions,
+    pub exclude_files: Vec<String>,
+    pub custom_config_patterns: Vec<(String, String)>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            indentation: "  ".to_string(),
+            uses_section: UsesSectionOptions::default(),
+            exclude_files: Vec::new(),
+            custom_config_patterns: Vec::new(),
             line_ending: LineEnding::Auto,
             transformations: TransformationOptions::default(),
             text_changes: TextChangeOptions::default(),
@@ -612,12 +626,12 @@ mod tests {
     fn test_default_options() {
         let options = Options::default();
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.exclude_files, Vec::<String>::new());
         assert_eq!(options.custom_config_patterns, Vec::<(String, String)>::new());
-        assert!(!options.module_names_to_update.is_empty());
-        assert_eq!(options.module_names_to_update.len(), 258);
+        assert!(!options.uses_section.module_names_to_update.is_empty());
+        assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
     }
@@ -626,12 +640,12 @@ mod tests {
     fn test_load_or_default_with_missing_file() {
         let options = Options::load_or_default("non_existent_file.toml");
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.override_sorting_order, Vec::<String>::new());
+        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new());
         assert_eq!(options.exclude_files, Vec::<String>::new());
         assert_eq!(options.custom_config_patterns, Vec::<(String, String)>::new());
-        assert!(!options.module_names_to_update.is_empty());
-        assert_eq!(options.module_names_to_update.len(), 258);
+        assert!(!options.uses_section.module_names_to_update.is_empty());
+        assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
     }
@@ -643,9 +657,11 @@ mod tests {
 
         let original_options = Options {
             indentation: "    ".to_string(), // 4 spaces
-            uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
-            override_sorting_order: vec!["test_error".to_string()],
-            module_names_to_update: Vec::new(),
+            uses_section: UsesSectionOptions {
+                uses_section_style: UsesSectionStyle::CommaAtTheBeginning,
+                override_sorting_order: vec!["test_error".to_string()],
+                module_names_to_update: Vec::new(),
+            },
             exclude_files: vec!["*.tmp".to_string(), "backup/*".to_string()],
             custom_config_patterns: vec![("test/*.pas".to_string(), "test_config.toml".to_string())],
             line_ending: LineEnding::Lf,
@@ -667,14 +683,14 @@ mod tests {
         // ...existing code...
         assert_eq!(loaded_options.indentation, "    ");
         assert_eq!(
-            loaded_options.uses_section_style,
+            loaded_options.uses_section.uses_section_style,
             UsesSectionStyle::CommaAtTheBeginning
         );
         assert_eq!(
-            loaded_options.override_sorting_order,
+            loaded_options.uses_section.override_sorting_order,
             vec!["test_error".to_string()]
         );
-        assert_eq!(loaded_options.module_names_to_update, Vec::<String>::new());
+        assert_eq!(loaded_options.uses_section.module_names_to_update, Vec::<String>::new());
         assert_eq!(loaded_options.exclude_files, vec!["*.tmp".to_string(), "backup/*".to_string()]);
         assert_eq!(loaded_options.custom_config_patterns, vec![("test/*.pas".to_string(), "test_config.toml".to_string())]);
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
@@ -703,10 +719,10 @@ line_ending = "Lf"
         // This should now parse successfully using defaults for missing fields
         let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.indentation, "    "); // From file
-        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd); // Default
-        assert_eq!(options.override_sorting_order, Vec::<String>::new()); // Default
-        assert!(!options.module_names_to_update.is_empty()); // Default
-        assert_eq!(options.module_names_to_update.len(), 258); // Default
+        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd); // Default
+        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new()); // Default
+        assert!(!options.uses_section.module_names_to_update.is_empty()); // Default
+        assert_eq!(options.uses_section.module_names_to_update.len(), 258); // Default
         assert_eq!(options.line_ending, LineEnding::Lf); // From file
 
         // Clean up
@@ -727,16 +743,16 @@ line_ending = "Lf"
         let default_options = Options::default();
         assert_eq!(options.indentation, default_options.indentation);
         assert_eq!(
-            options.uses_section_style,
-            default_options.uses_section_style
+            options.uses_section.uses_section_style,
+            default_options.uses_section.uses_section_style
         );
         assert_eq!(
-            options.override_sorting_order,
-            default_options.override_sorting_order
+            options.uses_section.override_sorting_order,
+            default_options.uses_section.override_sorting_order
         );
         assert_eq!(
-            options.module_names_to_update.len(),
-            default_options.module_names_to_update.len()
+            options.uses_section.module_names_to_update.len(),
+            default_options.uses_section.module_names_to_update.len()
         );
         assert_eq!(options.line_ending, default_options.line_ending);
 
@@ -765,10 +781,10 @@ enable_uses_section = false
 
         let options = Options::load_from_file(&file_path).unwrap();
         assert_eq!(options.indentation, "  ");
-        assert_eq!(options.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
-        assert_eq!(options.override_sorting_order, Vec::<String>::new());
-        assert!(!options.module_names_to_update.is_empty());
-        assert_eq!(options.module_names_to_update.len(), 258);
+        assert_eq!(options.uses_section.uses_section_style, UsesSectionStyle::CommaAtTheEnd);
+        assert_eq!(options.uses_section.override_sorting_order, Vec::<String>::new());
+        assert!(!options.uses_section.module_names_to_update.is_empty());
+        assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
     }

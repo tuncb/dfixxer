@@ -1,9 +1,11 @@
 indentation = "  "
+line_ending = "Auto"
+space_after_comma = true
+
+[uses_section]
 uses_section_style = "CommaAtTheEnd"
 override_sorting_order = []
 module_names_to_update = []
-line_ending = "Auto"
-space_after_comma = true
 
 [transformations]
 enable_uses_section = true
