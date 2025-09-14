@@ -12,8 +12,8 @@ var
   x,y,z: Integer;
   flag1,flag2,enabled: Boolean;
 begin
-  x := 10;
-  y := 20;
+  x := 10 * 20;
+  y := 20 - 10;
   z := 30;
   flag1 := True;
   flag2 := False;
@@ -60,9 +60,9 @@ var
   i,j,k: Integer;
 
 begin
-  point1.x := 5;
-  point1.y := 10;
-  point2.x := 15;
+  point1.x :=5;
+  point1.y :=     10;
+  point2.x := 15       ;
   point2.y := 20;
 
   color1 := Red;
@@ -70,9 +70,9 @@ begin
   color3 := Blue;
 
   for i := 1 to 10 do
-    numbers[i] := i * 2;
+    numbers[i] := i *2;
 
-  WriteLn('Sum: ',CalculateSum(1,2,3));
+  WriteLn('Sum: ',CalculateSum(1,    2,3));
   ProcessData('John','Doe','123 Main St',25,12345);
   WriteLn('Maximum: ',FindMaximum(1.5,2.7,3.1,2.9):0:2);
 end.

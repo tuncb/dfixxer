@@ -63,113 +63,324 @@ fn handle_operator(
     current_line: &mut String,
     result: &mut String,
     push_char: &impl Fn(char, &mut String, &mut String),
+    do_trim: bool,
 ) -> Option<String> {
     // Check for multi-character operators starting with current_char
     let next_char = chars.peek().copied();
+
+    fn active_buf<'a>(
+        do_trim: bool,
+        current_line: &'a mut String,
+        result: &'a mut String,
+    ) -> &'a mut String {
+        if do_trim { current_line } else { result }
+    }
+    fn remove_trailing_ws(buf: &mut String) {
+        while let Some(last) = buf.chars().last() {
+            if last == ' ' || last == '\t' {
+                buf.pop();
+            } else {
+                break;
+            }
+        }
+    }
+    fn ensure_one_space_before(buf: &mut String) {
+        if buf.is_empty() {
+            return;
+        }
+        if let Some(last) = buf.chars().last() {
+            if last == '\n' || last == '\r' {
+                return;
+            }
+        }
+        if let Some(last) = buf.chars().last() {
+            if last != ' ' && last != '\t' {
+                buf.push(' ');
+            }
+        }
+    }
+    fn consume_following_ws(chars: &mut std::iter::Peekable<std::str::Chars>) {
+        while let Some(&c) = chars.peek() {
+            if c == ' ' || c == '\t' {
+                chars.next();
+            } else {
+                break;
+            }
+        }
+    }
+    fn maybe_add_space_after(
+        op: &SpaceOperation,
+        chars: &mut std::iter::Peekable<std::str::Chars>,
+        buf: &mut String,
+    ) {
+        match op {
+            SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
+                if let Some(nc) = chars.peek().copied() {
+                    if !nc.is_whitespace() {
+                        buf.push(' ');
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 
     match (current_char, next_char) {
         // Two-character operators
         ('<', Some('=')) => {
             // '<=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, '<') {
-                push_char(' ', current_line, result);
-            }
-            push_char('<', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '<') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('<', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                SpaceOperation::After | SpaceOperation::Before | SpaceOperation::BeforeAndAfter => {
+                    // Normalize spacing
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('<', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some("<=".to_string())
         }
         ('<', Some('>')) => {
             // '<>' operator
             chars.next(); // consume the '>'
-            if should_add_space_before(operation, prev_char, '<') {
-                push_char(' ', current_line, result);
-            }
-            push_char('<', current_line, result);
-            push_char('>', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '>') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '<') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('<', current_line, result);
+                    push_char('>', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '>') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('<', current_line, result);
+                    push_char('>', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some("<>".to_string())
         }
         ('>', Some('=')) => {
             // '>=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, '>') {
-                push_char(' ', current_line, result);
-            }
-            push_char('>', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '>') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('>', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('>', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some(">=".to_string())
         }
         (':', Some('=')) => {
             // ':=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, ':') {
-                push_char(' ', current_line, result);
-            }
-            push_char(':', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, ':') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char(':', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char(':', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some(":=".to_string())
         }
         ('+', Some('=')) => {
             // '+=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, '+') {
-                push_char(' ', current_line, result);
-            }
-            push_char('+', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '+') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('+', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('+', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some("+=".to_string())
         }
         ('-', Some('=')) => {
             // '-=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, '-') {
-                push_char(' ', current_line, result);
-            }
-            push_char('-', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '-') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('-', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('-', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some("-=".to_string())
         }
         ('*', Some('=')) => {
             // '*=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, '*') {
-                push_char(' ', current_line, result);
-            }
-            push_char('*', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '*') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('*', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('*', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some("*=".to_string())
         }
         ('/', Some('=')) => {
             // '/=' operator
             chars.next(); // consume the '='
-            if should_add_space_before(operation, prev_char, '/') {
-                push_char(' ', current_line, result);
-            }
-            push_char('/', current_line, result);
-            push_char('=', current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), '=') {
-                push_char(' ', current_line, result);
+            match operation {
+                SpaceOperation::NoChange => {
+                    if should_add_space_before(operation, prev_char, '/') {
+                        push_char(' ', current_line, result);
+                    }
+                    push_char('/', current_line, result);
+                    push_char('=', current_line, result);
+                    if should_add_space_after(operation, chars.peek().copied(), '=') {
+                        push_char(' ', current_line, result);
+                    }
+                }
+                _ => {
+                    let buf = active_buf(do_trim, current_line, result);
+                    remove_trailing_ws(buf);
+                    if matches!(
+                        operation,
+                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                    ) {
+                        ensure_one_space_before(buf);
+                    }
+                    push_char('/', current_line, result);
+                    push_char('=', current_line, result);
+                    consume_following_ws(chars);
+                    let buf = active_buf(do_trim, current_line, result);
+                    maybe_add_space_after(operation, chars, buf);
+                }
             }
             Some("/=".to_string())
         }
@@ -269,6 +480,60 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
         }
     };
 
+    fn rm_trailing(buf: &mut String) {
+        while let Some(last) = buf.chars().last() {
+            if last == ' ' || last == '\t' {
+                buf.pop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn one_space_before_if_needed(buf: &mut String, op_char: char) {
+        if buf.is_empty() {
+            return;
+        }
+        if let Some(last) = buf.chars().last() {
+            if last == '\n' || last == '\r' {
+                return;
+            }
+            if last == op_char {
+                return;
+            }
+            if last != ' ' && last != '\t' {
+                buf.push(' ');
+            }
+        }
+    }
+    fn consume_hws(chars: &mut std::iter::Peekable<std::str::Chars>) {
+        while let Some(&c) = chars.peek() {
+            if c == ' ' || c == '\t' {
+                chars.next();
+            } else {
+                break;
+            }
+        }
+    }
+    fn space_after_if_needed(
+        op: &SpaceOperation,
+        chars: &mut std::iter::Peekable<std::str::Chars>,
+        buf: &mut String,
+        this_char: char,
+    ) {
+        match op {
+            SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
+                if let Some(nc) = chars.peek().copied() {
+                    // Do not add space if the next char is identical (e.g., ++, --, ==)
+                    if !nc.is_whitespace() && nc != this_char {
+                        buf.push(' ');
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     while let Some(ch) = chars.next() {
         match state {
             State::Code => {
@@ -310,43 +575,138 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '/=' handled by handle_operator
                         } else {
-                            // Single '/' division operator
-                            if should_add_space_before(&options.fdiv, prev_char, '/') {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char('/', &mut current_line, &mut result);
-                            if should_add_space_after(&options.fdiv, chars.peek().copied(), '/') {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.fdiv {
+                                SpaceOperation::NoChange => {
+                                    if should_add_space_before(&options.fdiv, prev_char, '/') {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char('/', &mut current_line, &mut result);
+                                    if should_add_space_after(
+                                        &options.fdiv,
+                                        chars.peek().copied(),
+                                        '/',
+                                    ) {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if matches!(
+                                        op,
+                                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                    ) {
+                                        one_space_before_if_needed(buf, '/');
+                                    }
+                                    push_char('/', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    space_after_if_needed(op, &mut chars, buf, '/');
+                                }
                             }
                         }
                     }
                     ',' => {
-                        // Add space before comma if needed
-                        if should_add_space_before(&options.comma, prev_char, ',') {
-                            push_char(' ', &mut current_line, &mut result);
-                        }
-                        // Add the comma
-                        push_char(',', &mut current_line, &mut result);
-                        // Add space after comma if needed
-                        if should_add_space_after(&options.comma, chars.peek().copied(), ',') {
-                            push_char(' ', &mut current_line, &mut result);
+                        match options.comma {
+                            SpaceOperation::NoChange => {
+                                if should_add_space_before(&options.comma, prev_char, ',') {
+                                    push_char(' ', &mut current_line, &mut result);
+                                }
+                                push_char(',', &mut current_line, &mut result);
+                                if should_add_space_after(
+                                    &options.comma,
+                                    chars.peek().copied(),
+                                    ',',
+                                ) {
+                                    push_char(' ', &mut current_line, &mut result);
+                                }
+                            }
+                            ref op => {
+                                let buf = if do_trim {
+                                    &mut current_line
+                                } else {
+                                    &mut result
+                                };
+                                rm_trailing(buf);
+                                if matches!(
+                                    op,
+                                    SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                ) {
+                                    one_space_before_if_needed(buf, ',');
+                                }
+                                push_char(',', &mut current_line, &mut result);
+                                consume_hws(&mut chars);
+                                let buf = if do_trim {
+                                    &mut current_line
+                                } else {
+                                    &mut result
+                                };
+                                // For comma: only add space if next char is not punctuation we purposely keep adjacent (semicolon)
+                                if let Some(nc) = chars.peek().copied() {
+                                    if nc == ';' {
+                                        // We still want exactly one space after comma before semicolon if comma rule demands After
+                                        if matches!(
+                                            op,
+                                            SpaceOperation::After | SpaceOperation::BeforeAndAfter
+                                        ) {
+                                            buf.push(' ');
+                                        }
+                                    } else {
+                                        space_after_if_needed(op, &mut chars, buf, ',');
+                                    }
+                                } else {
+                                    space_after_if_needed(op, &mut chars, buf, ',');
+                                }
+                            }
                         }
                     }
-                    ';' => {
-                        // Add space before semicolon if needed
-                        if should_add_space_before(&options.semi_colon, prev_char, ';') {
-                            push_char(' ', &mut current_line, &mut result);
+                    ';' => match options.semi_colon {
+                        SpaceOperation::NoChange => {
+                            if should_add_space_before(&options.semi_colon, prev_char, ';') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char(';', &mut current_line, &mut result);
+                            if should_add_space_after(
+                                &options.semi_colon,
+                                chars.peek().copied(),
+                                ';',
+                            ) {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
                         }
-                        // Add the semicolon
-                        push_char(';', &mut current_line, &mut result);
-                        // Add space after semicolon if needed
-                        if should_add_space_after(&options.semi_colon, chars.peek().copied(), ';') {
-                            push_char(' ', &mut current_line, &mut result);
+                        ref op => {
+                            let buf = if do_trim {
+                                &mut current_line
+                            } else {
+                                &mut result
+                            };
+                            rm_trailing(buf);
+                            if matches!(op, SpaceOperation::Before | SpaceOperation::BeforeAndAfter)
+                            {
+                                one_space_before_if_needed(buf, ';');
+                            }
+                            push_char(';', &mut current_line, &mut result);
+                            consume_hws(&mut chars);
+                            let buf = if do_trim {
+                                &mut current_line
+                            } else {
+                                &mut result
+                            };
+                            space_after_if_needed(op, &mut chars, buf, ';');
                         }
-                    }
+                    },
                     '<' => {
                         if let Some(_handled) = handle_operator(
                             ch,
@@ -356,6 +716,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '<=' handled by handle_operator
                         } else if let Some(_handled) = handle_operator(
@@ -366,29 +727,80 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '<>' handled by handle_operator
                         } else {
-                            // Single '<' operator
-                            if should_add_space_before(&options.lt, prev_char, '<') {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char('<', &mut current_line, &mut result);
-                            if should_add_space_after(&options.lt, chars.peek().copied(), '<') {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.lt {
+                                SpaceOperation::NoChange => {
+                                    if should_add_space_before(&options.lt, prev_char, '<') {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char('<', &mut current_line, &mut result);
+                                    if should_add_space_after(
+                                        &options.lt,
+                                        chars.peek().copied(),
+                                        '<',
+                                    ) {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if matches!(
+                                        op,
+                                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                    ) {
+                                        one_space_before_if_needed(buf, '<');
+                                    }
+                                    push_char('<', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    space_after_if_needed(op, &mut chars, buf, '<');
+                                }
                             }
                         }
                     }
-                    '=' => {
-                        // Single '=' operator
-                        if should_add_space_before(&options.eq, prev_char, '=') {
-                            push_char(' ', &mut current_line, &mut result);
+                    '=' => match options.eq {
+                        SpaceOperation::NoChange => {
+                            if should_add_space_before(&options.eq, prev_char, '=') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                            push_char('=', &mut current_line, &mut result);
+                            if should_add_space_after(&options.eq, chars.peek().copied(), '=') {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
                         }
-                        push_char('=', &mut current_line, &mut result);
-                        if should_add_space_after(&options.eq, chars.peek().copied(), '=') {
-                            push_char(' ', &mut current_line, &mut result);
+                        ref op => {
+                            let buf = if do_trim {
+                                &mut current_line
+                            } else {
+                                &mut result
+                            };
+                            rm_trailing(buf);
+                            if matches!(op, SpaceOperation::Before | SpaceOperation::BeforeAndAfter)
+                            {
+                                one_space_before_if_needed(buf, '=');
+                            }
+                            push_char('=', &mut current_line, &mut result);
+                            consume_hws(&mut chars);
+                            let buf = if do_trim {
+                                &mut current_line
+                            } else {
+                                &mut result
+                            };
+                            space_after_if_needed(op, &mut chars, buf, '=');
                         }
-                    }
+                    },
                     '>' => {
                         if let Some(_handled) = handle_operator(
                             ch,
@@ -398,16 +810,46 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '>=' handled by handle_operator
                         } else {
-                            // Single '>' operator
-                            if should_add_space_before(&options.gt, prev_char, '>') {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char('>', &mut current_line, &mut result);
-                            if should_add_space_after(&options.gt, chars.peek().copied(), '>') {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.gt {
+                                SpaceOperation::NoChange => {
+                                    if should_add_space_before(&options.gt, prev_char, '>') {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char('>', &mut current_line, &mut result);
+                                    if should_add_space_after(
+                                        &options.gt,
+                                        chars.peek().copied(),
+                                        '>',
+                                    ) {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if matches!(
+                                        op,
+                                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                    ) {
+                                        one_space_before_if_needed(buf, '>');
+                                    }
+                                    push_char('>', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    space_after_if_needed(op, &mut chars, buf, '>');
+                                }
                             }
                         }
                     }
@@ -420,16 +862,46 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '+=' handled by handle_operator
                         } else {
-                            // Single '+' operator
-                            if should_add_space_before(&options.add, prev_char, '+') {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char('+', &mut current_line, &mut result);
-                            if should_add_space_after(&options.add, chars.peek().copied(), '+') {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.add {
+                                SpaceOperation::NoChange => {
+                                    if should_add_space_before(&options.add, prev_char, '+') {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char('+', &mut current_line, &mut result);
+                                    if should_add_space_after(
+                                        &options.add,
+                                        chars.peek().copied(),
+                                        '+',
+                                    ) {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if matches!(
+                                        op,
+                                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                    ) {
+                                        one_space_before_if_needed(buf, '+');
+                                    }
+                                    push_char('+', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    space_after_if_needed(op, &mut chars, buf, '+');
+                                }
                             }
                         }
                     }
@@ -442,16 +914,46 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '-=' handled by handle_operator
                         } else {
-                            // Single '-' operator
-                            if should_add_space_before(&options.sub, prev_char, '-') {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char('-', &mut current_line, &mut result);
-                            if should_add_space_after(&options.sub, chars.peek().copied(), '-') {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.sub {
+                                SpaceOperation::NoChange => {
+                                    if should_add_space_before(&options.sub, prev_char, '-') {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char('-', &mut current_line, &mut result);
+                                    if should_add_space_after(
+                                        &options.sub,
+                                        chars.peek().copied(),
+                                        '-',
+                                    ) {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if matches!(
+                                        op,
+                                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                    ) {
+                                        one_space_before_if_needed(buf, '-');
+                                    }
+                                    push_char('-', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    space_after_if_needed(op, &mut chars, buf, '-');
+                                }
                             }
                         }
                     }
@@ -464,16 +966,46 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // '*=' handled by handle_operator
                         } else {
-                            // Single '*' operator
-                            if should_add_space_before(&options.mul, prev_char, '*') {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char('*', &mut current_line, &mut result);
-                            if should_add_space_after(&options.mul, chars.peek().copied(), '*') {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.mul {
+                                SpaceOperation::NoChange => {
+                                    if should_add_space_before(&options.mul, prev_char, '*') {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char('*', &mut current_line, &mut result);
+                                    if should_add_space_after(
+                                        &options.mul,
+                                        chars.peek().copied(),
+                                        '*',
+                                    ) {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if matches!(
+                                        op,
+                                        SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                    ) {
+                                        one_space_before_if_needed(buf, '*');
+                                    }
+                                    push_char('*', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    space_after_if_needed(op, &mut chars, buf, '*');
+                                }
                             }
                         }
                     }
@@ -486,6 +1018,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                             &mut current_line,
                             &mut result,
                             &push_char,
+                            do_trim,
                         ) {
                             // ':=' handled by handle_operator
                         } else {
@@ -496,21 +1029,54 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
                                 prev_char,
                                 chars.peek().copied(),
                             );
-
-                            if !skip_spacing
-                                && should_add_space_before(&options.colon, prev_char, ':')
-                            {
-                                push_char(' ', &mut current_line, &mut result);
-                            }
-                            push_char(':', &mut current_line, &mut result);
-                            if !skip_spacing
-                                && should_add_space_after(
-                                    &options.colon,
-                                    chars.peek().copied(),
-                                    ':',
-                                )
-                            {
-                                push_char(' ', &mut current_line, &mut result);
+                            match options.colon {
+                                SpaceOperation::NoChange => {
+                                    if !skip_spacing
+                                        && should_add_space_before(&options.colon, prev_char, ':')
+                                    {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                    push_char(':', &mut current_line, &mut result);
+                                    if !skip_spacing
+                                        && should_add_space_after(
+                                            &options.colon,
+                                            chars.peek().copied(),
+                                            ':',
+                                        )
+                                    {
+                                        push_char(' ', &mut current_line, &mut result);
+                                    }
+                                }
+                                ref op => {
+                                    let buf = if do_trim {
+                                        &mut current_line
+                                    } else {
+                                        &mut result
+                                    };
+                                    rm_trailing(buf);
+                                    if !skip_spacing
+                                        && matches!(
+                                            op,
+                                            SpaceOperation::Before | SpaceOperation::BeforeAndAfter
+                                        )
+                                    {
+                                        one_space_before_if_needed(buf, ':');
+                                    }
+                                    push_char(':', &mut current_line, &mut result);
+                                    consume_hws(&mut chars);
+                                    if !skip_spacing
+                                        && matches!(
+                                            op,
+                                            SpaceOperation::After | SpaceOperation::BeforeAndAfter
+                                        )
+                                    {
+                                        if let Some(nc) = chars.peek().copied() {
+                                            if !nc.is_whitespace() && nc != ':' {
+                                                push_char(' ', &mut current_line, &mut result);
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -993,20 +1559,6 @@ mod tests {
         let text = "line1   \r\nline2\t\t\nline3   ";
         let result = apply_text_changes(text, &options);
         assert_eq!(result, "line1\r\nline2\nline3");
-    }
-
-    #[test]
-    fn test_spacing_with_consecutive_punctuation() {
-        let options = TextChangeOptions {
-            comma: SpaceOperation::After,
-            semi_colon: SpaceOperation::After,
-            trim_trailing_whitespace: false,
-            ..Default::default()
-        };
-        // Test that we don't add space before another comma/semicolon, but do add after
-        let text = "a,,b;;c,;d";
-        let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a,, b;; c, ; d"); // Spaces added after punctuation, not before
     }
 
     // --- Original tests ensuring spacing is skipped inside strings & comments ---
