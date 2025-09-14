@@ -1,6 +1,6 @@
 # dfixxer
 
-Version: 0.5.0
+Version: 0.6.0
 
 A command-line tool that reformats Delphi/Pascal files.
 
@@ -33,37 +33,45 @@ dfixxer [GLOBAL_OPTIONS] <COMMAND> [COMMAND_OPTIONS]
 #### `update` - Reformat file in-place
 
 ```
-dfixxer update <filename> [--config <path>]
+dfixxer update <filename> [--config <path>] [--multi]
 ```
 
 Reformats and sorts the uses section(s) in the given Pascal file, modifying it in-place.
 
 **Arguments:**
-- `<filename>`: Path to the Pascal file to update (required)
+- `<filename>`: Path to the Pascal file to update (required). When `--multi` is used, this can be a glob pattern.
 
 **Options:**
 - `--config <path>`: Path to configuration file
   - If not provided, searches for `dfixxer.toml` starting from the file's directory and walking up parent directories
   - If no config file is found, uses built-in defaults
+- `--multi`: Process multiple files using glob patterns
+  - When enabled, `<filename>` is treated as a glob pattern (e.g., `"src/**/*.pas"`)
+  - Processes all matching files individually
+  - Logs processing progress at info level
 
 #### `check` - Preview changes without modifying
 
 ```
-dfixxer check <filename> [--config <path>]
+dfixxer check <filename> [--config <path>] [--multi]
 ```
 
 Shows what changes would be made to the uses section(s) without modifying the file.
 
 **Arguments:**
-- `<filename>`: Path to the Pascal file to check (required)
+- `<filename>`: Path to the Pascal file to check (required). When `--multi` is used, this can be a glob pattern.
 
 **Options:**
 - `--config <path>`: Path to configuration file (same behavior as `update`)
+- `--multi`: Process multiple files using glob patterns
+  - When enabled, `<filename>` is treated as a glob pattern (e.g., `"src/**/*.pas"`)
+  - Shows the absolute path of each file being processed
+  - Returns the total number of replacements across all files
 
 **Exit Code:**
 - Returns the number of replacements that would be made as the exit code
 - `0` if no changes are needed
-- `N` (where N > 0) if N replacements would be made
+- `N` (where N > 0) if N total replacements would be made across all files
 - `1` if an error occurred (with error message printed to stderr)
 
 #### `init-config` - Create default configuration
@@ -80,24 +88,34 @@ Creates a default configuration file at the specified path.
 #### `parse` - Debug: Show AST
 
 ```
-dfixxer parse <filename>
+dfixxer parse <filename> [--multi]
 ```
 
 Parses a Pascal file and prints its Abstract Syntax Tree (AST) for debugging purposes.
 
 **Arguments:**
-- `<filename>`: Path to the Pascal file to parse (required)
+- `<filename>`: Path to the Pascal file to parse (required). When `--multi` is used, this can be a glob pattern.
+
+**Options:**
+- `--multi`: Process multiple files using glob patterns
+  - When enabled, `<filename>` is treated as a glob pattern (e.g., `"src/**/*.pas"`)
+  - Shows the absolute path of each file being processed
 
 #### `parse-debug` - Debug: Show detailed parsing information
 
 ```
-dfixxer parse-debug <filename>
+dfixxer parse-debug <filename> [--multi]
 ```
 
 Parses a Pascal file and prints detailed debug information including parser output for troubleshooting.
 
 **Arguments:**
-- `<filename>`: Path to the Pascal file to parse with debug output (required)
+- `<filename>`: Path to the Pascal file to parse with debug output (required). When `--multi` is used, this can be a glob pattern.
+
+**Options:**
+- `--multi`: Process multiple files using glob patterns
+  - When enabled, `<filename>` is treated as a glob pattern (e.g., `"src/**/*.pas"`)
+  - Shows the absolute path of each file being processed
 
 ### Exit Codes
 
@@ -149,6 +167,42 @@ if ($replacements -eq 0) {
 
 ```pwsh
 ./target/debug/dfixxer init-config .\dfixxer.toml
+```
+
+#### Process multiple files using glob patterns
+
+```pwsh
+# Update all Pascal files in the src directory
+./target/debug/dfixxer update "src/**/*.pas" --multi
+
+# Check all Pascal files in current directory and subdirectories
+./target/debug/dfixxer check "**/*.pas" --multi
+
+# Update all Pascal files matching a specific pattern with custom config
+./target/debug/dfixxer --log-level info update "project/**/*.pas" --multi --config custom.toml
+```
+
+#### Check multiple files and get total replacement count
+
+```pwsh
+# Check all Pascal files and get total replacements needed
+./target/debug/dfixxer check "src/**/*.pas" --multi
+$totalReplacements = $LASTEXITCODE
+if ($totalReplacements -eq 0) {
+    Write-Host "All files are properly formatted"
+} else {
+    Write-Host "Total replacements needed across all files: $totalReplacements"
+}
+```
+
+#### Debug parsing for multiple files
+
+```pwsh
+# Parse all Pascal files in a directory for debugging
+./target/debug/dfixxer parse "src/*.pas" --multi
+
+# Get detailed debug output for multiple files
+./target/debug/dfixxer parse-debug "problematic_files/*.pas" --multi
 ```
 
 #### Get help for any command

@@ -1,7 +1,7 @@
 mod dfixxer_error;
 use dfixxer_error::DFixxerError;
 mod arguments;
-use arguments::{Command, parse_args};
+use arguments::{Command, parse_args, expand_filename_pattern};
 mod options;
 use options::{Options, should_exclude_file, find_custom_config_for_file};
 mod replacements;
@@ -167,88 +167,139 @@ fn run() -> Result<i32, DFixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
 
-    // For commands that process files, check if the file should be excluded
-    match &arguments.command {
+    // Expand filename pattern if multi flag is set, but only for commands that support it
+    let filenames = match &arguments.command {
+        Command::UpdateFile | Command::CheckFile | Command::Parse | Command::ParseDebug => {
+            expand_filename_pattern(&arguments.filename, arguments.multi)?
+        }
+        Command::InitConfig => {
+            // InitConfig doesn't use multi mode
+            vec![arguments.filename.clone()]
+        }
+    };
+
+    // For commands that process files, check if files should be excluded
+    let filtered_filenames: Vec<String> = match &arguments.command {
         Command::UpdateFile | Command::CheckFile => {
             // Load options to check exclusion patterns
             let config_path = arguments.config_path.as_deref().unwrap_or("dfixxer.toml");
             let options = Options::load_or_default(config_path);
 
-            // Check if file is excluded
-            if should_exclude_file(&options.exclude_files, &arguments.filename, Some(config_path)) {
-                log::info!("File '{}' is excluded by configuration, exiting successfully", arguments.filename);
-                return Ok(0);
-            }
+            // Filter out excluded files
+            filenames.into_iter().filter(|filename| {
+                if should_exclude_file(&options.exclude_files, filename, Some(config_path)) {
+                    log::info!("File '{}' is excluded by configuration, skipping", filename);
+                    false
+                } else {
+                    true
+                }
+            }).collect()
         }
-        _ => {}
+        _ => filenames,
+    };
+
+    if filtered_filenames.is_empty() {
+        if arguments.multi {
+            log::info!("No files to process after filtering");
+        }
+        return Ok(0);
     }
 
-    match arguments.command {
-        Command::UpdateFile => {
-            let mut timing = TimingCollector::new();
+    let mut total_exit_code = 0i32;
 
-            let (source, replacements) = process_file(
-                &arguments.filename,
-                arguments.config_path.as_deref(),
-                &mut timing,
-            )?;
-
-            // Time applying replacements
-            if !replacements.is_empty() {
-                timing.time_operation_result("Applying replacements", || {
-                    merge_replacements(&arguments.filename, &source, replacements)
-                })?;
-            }
-
-            // Log the timing summary
-            timing.log_summary();
-            Ok(0)
-        }
-        Command::CheckFile => {
-            let mut timing = TimingCollector::new();
-
-            let (source, replacements) = process_file(
-                &arguments.filename,
-                arguments.config_path.as_deref(),
-                &mut timing,
-            )?;
-
-            // Print replacements instead of applying them
-            print_replacements(&source, &replacements);
-
-            // Log the timing summary
-            timing.log_summary();
-
-            // Return the number of non-identity replacements as exit code
-            let non_identity_count = replacements.iter().filter(|r| r.text.is_some()).count();
-            Ok(non_identity_count as i32)
-        }
-        Command::InitConfig => {
-            println!("Initializing configuration...");
-            match Options::create_default_config(&arguments.filename) {
-                Ok(()) => {
-                    println!("Created default configuration file: {}", arguments.filename);
-                    Ok(0)
+    // Process each file
+    for filename in &filtered_filenames {
+        // For multi mode, show filename for check, parse, parse-debug commands
+        if arguments.multi {
+            match &arguments.command {
+                Command::CheckFile | Command::Parse | Command::ParseDebug => {
+                    let absolute_path = std::fs::canonicalize(filename)
+                        .unwrap_or_else(|_| filename.into());
+                    println!("Processing file: {}", absolute_path.display());
                 }
-                Err(e) => {
-                    return Err(e);
+                Command::UpdateFile => {
+                    log::info!("Processing file: {}", filename);
                 }
+                _ => {}
             }
         }
-        Command::Parse => {
-            // Parse the file and print each node's kind and text using parse_raw
-            let source = std::fs::read_to_string(&arguments.filename)?;
-            parser::parse_raw(&source)?;
-            Ok(0)
-        }
-        Command::ParseDebug => {
-            // Parse the file and print the ParseResult structure
-            let source = std::fs::read_to_string(&arguments.filename)?;
-            let parse_result = parse(&source)?;
-            println!("{:#?}", parse_result);
-            Ok(0)
-        }
+
+        let exit_code = match arguments.command {
+            Command::UpdateFile => {
+                let mut timing = TimingCollector::new();
+
+                let (source, replacements) = process_file(
+                    filename,
+                    arguments.config_path.as_deref(),
+                    &mut timing,
+                )?;
+
+                // Time applying replacements
+                if !replacements.is_empty() {
+                    timing.time_operation_result("Applying replacements", || {
+                        merge_replacements(filename, &source, replacements)
+                    })?;
+                }
+
+                // Log the timing summary
+                timing.log_summary();
+                0
+            }
+            Command::CheckFile => {
+                let mut timing = TimingCollector::new();
+
+                let (source, replacements) = process_file(
+                    filename,
+                    arguments.config_path.as_deref(),
+                    &mut timing,
+                )?;
+
+                // Print replacements instead of applying them
+                print_replacements(&source, &replacements);
+
+                // Log the timing summary
+                timing.log_summary();
+
+                // Return the number of non-identity replacements as exit code
+                let non_identity_count = replacements.iter().filter(|r| r.text.is_some()).count();
+                non_identity_count as i32
+            }
+            Command::InitConfig => {
+                // InitConfig doesn't use multi mode, so just process first file
+                if filename == &filtered_filenames[0] {
+                    println!("Initializing configuration...");
+                    match Options::create_default_config(filename) {
+                        Ok(()) => {
+                            println!("Created default configuration file: {}", filename);
+                            0
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                } else {
+                    0  // Skip other files for init-config
+                }
+            }
+            Command::Parse => {
+                // Parse the file and print each node's kind and text using parse_raw
+                let source = std::fs::read_to_string(filename)?;
+                parser::parse_raw(&source)?;
+                0
+            }
+            Command::ParseDebug => {
+                // Parse the file and print the ParseResult structure
+                let source = std::fs::read_to_string(filename)?;
+                let parse_result = parse(&source)?;
+                println!("{:#?}", parse_result);
+                0
+            }
+        };
+
+        total_exit_code += exit_code;
     }
+
+    Ok(total_exit_code)
 }
 
 fn main() {

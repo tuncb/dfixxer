@@ -47,6 +47,7 @@ pub struct Arguments {
     pub filename: String,
     pub config_path: Option<String>,
     pub log_level: Option<LogLevel>,
+    pub multi: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -69,6 +70,9 @@ enum CliCommand {
         /// Path to the configuration file
         #[arg(long = "config")]
         config: Option<String>,
+        /// Process multiple files using glob patterns
+        #[arg(long = "multi")]
+        multi: bool,
     },
     /// Check a file and show what would be changed without modifying it
     Check {
@@ -77,6 +81,9 @@ enum CliCommand {
         /// Path to the configuration file
         #[arg(long = "config")]
         config: Option<String>,
+        /// Process multiple files using glob patterns
+        #[arg(long = "multi")]
+        multi: bool,
     },
     /// Initialize configuration for a file
     InitConfig {
@@ -87,11 +94,17 @@ enum CliCommand {
     Parse {
         /// The filename to parse
         filename: String,
+        /// Process multiple files using glob patterns
+        #[arg(long = "multi")]
+        multi: bool,
     },
     /// Parse a file and print detailed debug information
     ParseDebug {
         /// The filename to parse with debug output
         filename: String,
+        /// Process multiple files using glob patterns
+        #[arg(long = "multi")]
+        multi: bool,
     },
 }
 
@@ -146,7 +159,7 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
     };
 
     match cli.command {
-        CliCommand::Update { filename, config } => {
+        CliCommand::Update { filename, config, multi } => {
             // If --config was not provided, try to find dfixxer.toml upward from the file's directory
             let config_path = match config {
                 Some(path) => Some(path),
@@ -158,9 +171,10 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
                 filename,
                 config_path,
                 log_level: cli.log_level,
+                multi,
             })
         }
-        CliCommand::Check { filename, config } => {
+        CliCommand::Check { filename, config, multi } => {
             // If --config was not provided, try to find dfixxer.toml upward from the file's directory
             let config_path = match config {
                 Some(path) => Some(path),
@@ -172,6 +186,7 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
                 filename,
                 config_path,
                 log_level: cli.log_level,
+                multi,
             })
         }
         CliCommand::InitConfig { filename } => Ok(Arguments {
@@ -179,18 +194,68 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
             filename,
             config_path: None,
             log_level: cli.log_level,
+            multi: false, // InitConfig doesn't support multi
         }),
-        CliCommand::Parse { filename } => Ok(Arguments {
+        CliCommand::Parse { filename, multi } => Ok(Arguments {
             command: Command::Parse,
             filename,
             config_path: None,
             log_level: cli.log_level,
+            multi,
         }),
-        CliCommand::ParseDebug { filename } => Ok(Arguments {
+        CliCommand::ParseDebug { filename, multi } => Ok(Arguments {
             command: Command::ParseDebug,
             filename,
             config_path: None,
             log_level: cli.log_level,
+            multi,
         }),
+    }
+}
+
+/// Expand a filename pattern using glob if needed
+/// If multi is false, returns the filename as-is in a vector
+/// If multi is true, expands the pattern using glob and returns all matching files
+pub fn expand_filename_pattern(filename: &str, multi: bool) -> Result<Vec<String>, DFixxerError> {
+    if !multi {
+        // Single file mode - return as-is
+        return Ok(vec![filename.to_string()]);
+    }
+
+    // Multi mode - use glob to expand pattern
+    match glob::glob(filename) {
+        Ok(paths) => {
+            let mut files = Vec::new();
+            for entry in paths {
+                match entry {
+                    Ok(path) => {
+                        if let Some(path_str) = path.to_str() {
+                            files.push(path_str.to_string());
+                        }
+                    }
+                    Err(e) => {
+                        return Err(DFixxerError::IoError(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Error processing glob pattern '{}': {}", filename, e),
+                        )));
+                    }
+                }
+            }
+
+            if files.is_empty() {
+                return Err(DFixxerError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("No files found matching pattern: {}", filename),
+                )));
+            }
+
+            // Sort files for consistent ordering
+            files.sort();
+            Ok(files)
+        }
+        Err(e) => Err(DFixxerError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Invalid glob pattern '{}': {}", filename, e),
+        ))),
     }
 }
