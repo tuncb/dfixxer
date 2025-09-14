@@ -9,12 +9,11 @@ pub fn apply_text_transformation(
     text: &str,
     options: &TextChangeOptions,
 ) -> Option<TextReplacement> {
-    let modified_text = apply_text_changes(text, options);
-    if modified_text != text {
-        Some(TextReplacement { start, end, text: modified_text })
-    } else {
-        None
-    }
+    apply_text_changes(text, options).map(|modified| TextReplacement {
+        start,
+        end,
+        text: modified,
+    })
 }
 
 /// Helper function to determine if space should be added before a character/operator
@@ -425,7 +424,7 @@ fn should_skip_colon_spacing(
 }
 
 /// Apply all text changes to a text string based on the given options
-fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
+fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String> {
     // State machine to skip Delphi string literals and comments for spacing insertion.
     // We still may trim trailing whitespace (optionally) per line, but trimming is safe
     // inside comments / strings per spec given by user.
@@ -1145,7 +1144,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> String {
         let trimmed = current_line.trim_end();
         result.push_str(trimmed);
     }
-    result
+    if result == text { None } else { Some(result) }
 }
 
 #[cfg(test)]
@@ -1163,12 +1162,16 @@ mod tests {
         };
 
         let result = apply_text_transformation(0, 11, text, &options);
-    assert_eq!(result.unwrap().text, "Hello, World".to_string());
+        assert_eq!(result.unwrap().text, "Hello, World".to_string());
     }
 
     #[test]
     fn test_apply_text_transformation_comma_only_with_regular_replacement() {
-        let replacement = TextReplacement { start: 0, end: 8, text: "A,B,C".to_string() };
+        let replacement = TextReplacement {
+            start: 0,
+            end: 8,
+            text: "A,B,C".to_string(),
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::NoChange,
@@ -1202,7 +1205,11 @@ mod tests {
         assert_eq!(result1.unwrap().text, "Hello, World".to_string());
 
         // Test regular replacement without commas
-        let replacement2 = TextReplacement { start: 11, end: 15, text: " and ".to_string() };
+        let replacement2 = TextReplacement {
+            start: 11,
+            end: 15,
+            text: " and ".to_string(),
+        };
         let result2 = apply_text_transformation(
             replacement2.start,
             replacement2.end,
@@ -1212,7 +1219,11 @@ mod tests {
         assert!(result2.is_none()); // No changes should be made
 
         // Test regular replacement with comma
-        let replacement3 = TextReplacement { start: 15, end: 23, text: "Baz,Qux".to_string() };
+        let replacement3 = TextReplacement {
+            start: 15,
+            end: 23,
+            text: "Baz,Qux".to_string(),
+        };
         let result3 = apply_text_transformation(
             replacement3.start,
             replacement3.end,
@@ -1232,7 +1243,11 @@ mod tests {
         };
 
         // Test replacement with uses content
-        let uses_replacement = TextReplacement { start: 0, end: 11, text: "uses,System".to_string() };
+        let uses_replacement = TextReplacement {
+            start: 0,
+            end: 11,
+            text: "uses,System".to_string(),
+        };
         let result1 = apply_text_transformation(
             uses_replacement.start,
             uses_replacement.end,
@@ -1243,7 +1258,11 @@ mod tests {
         assert_eq!(result1.unwrap().text, "uses, System".to_string());
 
         // Test regular replacement
-        let regular_replacement = TextReplacement { start: 11, end: 23, text: " test,code".to_string() };
+        let regular_replacement = TextReplacement {
+            start: 11,
+            end: 23,
+            text: " test,code".to_string(),
+        };
         let result2 = apply_text_transformation(
             regular_replacement.start,
             regular_replacement.end,
@@ -1263,7 +1282,7 @@ mod tests {
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a, b;c, d");
+        assert_eq!(result.unwrap(), "a, b;c, d");
     }
 
     #[test]
@@ -1276,7 +1295,7 @@ mod tests {
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a,b; c,d");
+        assert_eq!(result.unwrap(), "a,b; c,d");
     }
 
     #[test]
@@ -1289,7 +1308,7 @@ mod tests {
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a, b; c, d");
+        assert_eq!(result.unwrap(), "a, b; c, d");
     }
 
     #[test]
@@ -1302,12 +1321,16 @@ mod tests {
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a,b;c,d");
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_apply_text_transformation_with_options() {
-        let replacement = TextReplacement { start: 0, end: 8, text: "a,b;c".to_string() };
+        let replacement = TextReplacement {
+            start: 0,
+            end: 8,
+            text: "a,b;c".to_string(),
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1340,7 +1363,11 @@ mod tests {
 
     #[test]
     fn test_apply_text_transformation_regular_replacement() {
-        let replacement = TextReplacement { start: 0, end: 8, text: "a,b;c".to_string() };
+        let replacement = TextReplacement {
+            start: 0,
+            end: 8,
+            text: "a,b;c".to_string(),
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1367,7 +1394,7 @@ mod tests {
         };
         let text = "Line 1   \nLine 2\t\t\nLine 3 ";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "Line 1\nLine 2\nLine 3");
+        assert_eq!(result.unwrap(), "Line 1\nLine 2\nLine 3");
     }
 
     #[test]
@@ -1380,7 +1407,7 @@ mod tests {
         };
         let text = "a,b,c   \nd,e,f\t\t";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a, b, c\nd, e, f");
+        assert_eq!(result.unwrap(), "a, b, c\nd, e, f");
     }
 
     #[test]
@@ -1393,12 +1420,16 @@ mod tests {
         };
         let text = "a,b;c,d   \ne,f;g,h\t\t";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a, b; c, d\ne, f; g, h");
+        assert_eq!(result.unwrap(), "a, b; c, d\ne, f; g, h");
     }
 
     #[test]
     fn test_apply_text_transformation_with_trim_trailing_whitespace() {
-        let replacement = TextReplacement { start: 0, end: 11, text: "a,b;c   \nd,e;f\t\t".to_string() };
+        let replacement = TextReplacement {
+            start: 0,
+            end: 11,
+            text: "a,b;c   \nd,e;f\t\t".to_string(),
+        };
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
@@ -1426,10 +1457,7 @@ mod tests {
         };
         let text = &source[..];
         let result = apply_text_transformation(0, source.len(), text, &options);
-        assert_eq!(
-            result.unwrap().text,
-            "Hello, World\nFoo; Bar".to_string()
-        );
+        assert_eq!(result.unwrap().text, "Hello, World\nFoo; Bar".to_string());
     }
 
     #[test]
@@ -1448,7 +1476,11 @@ mod tests {
 
     #[test]
     fn test_apply_text_transformation_regular_replacement_no_changes() {
-        let replacement = TextReplacement { start: 0, end: 8, text: "Hello, World".to_string() }; // Already properly formatted
+        let replacement = TextReplacement {
+            start: 0,
+            end: 8,
+            text: "Hello, World".to_string(),
+        }; // Already properly formatted
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::NoChange,
@@ -1479,7 +1511,7 @@ mod tests {
         let text = "s := 'It''s a test',x;y";
         let result = apply_text_changes(text, &options);
         // The comma/semicolon inside the string should not be spaced
-        assert_eq!(result, "s := 'It''s a test', x; y");
+        assert_eq!(result.unwrap(), "s := 'It''s a test', x; y");
     }
 
     #[test]
@@ -1493,7 +1525,10 @@ mod tests {
         // Multiple escaped quotes and code after
         let text = "msg := 'Can''t say ''hello'', sorry',next";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "msg := 'Can''t say ''hello'', sorry', next");
+        assert_eq!(
+            result.unwrap(),
+            "msg := 'Can''t say ''hello'', sorry', next"
+        );
     }
 
     #[test]
@@ -1508,7 +1543,7 @@ mod tests {
         let text = "s := 'unterminated\ncode,after;break";
         let result = apply_text_changes(text, &options);
         // After line break, spacing should be applied
-        assert_eq!(result, "s := 'unterminated\ncode, after; break");
+        assert_eq!(result.unwrap(), "s := 'unterminated\ncode, after; break");
     }
 
     #[test]
@@ -1522,7 +1557,7 @@ mod tests {
         // Test multiline brace comments
         let text = "{ multi\nline,comment;here }\ncode,after";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "{ multi\nline,comment;here }\ncode, after");
+        assert_eq!(result.unwrap(), "{ multi\nline,comment;here }\ncode, after");
     }
 
     #[test]
@@ -1536,7 +1571,10 @@ mod tests {
         // Test multiline (* *) comments
         let text = "(* multi\nline,comment;here *)\ncode,after";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "(* multi\nline,comment;here *)\ncode, after");
+        assert_eq!(
+            result.unwrap(),
+            "(* multi\nline,comment;here *)\ncode, after"
+        );
     }
 
     #[test]
@@ -1550,7 +1588,7 @@ mod tests {
         // Test trimming with both LF and CRLF
         let text = "line1   \r\nline2\t\t\nline3   ";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "line1\r\nline2\nline3");
+        assert_eq!(result.unwrap(), "line1\r\nline2\nline3");
     }
 
     // --- Original tests ensuring spacing is skipped inside strings & comments ---
@@ -1565,7 +1603,7 @@ mod tests {
         let text = "'a,b;c',x;y";
         // Only commas/semicolons outside the quotes should be spaced.
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "'a,b;c', x; y");
+        assert_eq!(result.unwrap(), "'a,b;c', x; y");
     }
 
     #[test]
@@ -1578,7 +1616,7 @@ mod tests {
         };
         let text = "{a,b;c},x;y";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "{a,b;c}, x; y");
+        assert_eq!(result.unwrap(), "{a,b;c}, x; y");
     }
 
     #[test]
@@ -1591,7 +1629,7 @@ mod tests {
         };
         let text = "(*a,b;c*),x;y";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "(*a,b;c*), x; y");
+        assert_eq!(result.unwrap(), "(*a,b;c*), x; y");
     }
 
     #[test]
@@ -1605,7 +1643,7 @@ mod tests {
         let text = "// a,b;c\nx,y;z";
         let result = apply_text_changes(text, &options);
         // Only second line is transformed.
-        assert_eq!(result, "// a,b;c\nx, y; z");
+        assert_eq!(result.unwrap(), "// a,b;c\nx, y; z");
     }
 
     #[test]
@@ -1619,7 +1657,7 @@ mod tests {
         let text = "val:='a,b'; // c,d;e\n{ x,y;z } foo,bar;baz (* p,q;r *) qux,quux";
         let result = apply_text_changes(text, &options);
         assert_eq!(
-            result,
+            result.unwrap(),
             "val := 'a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
         );
     }
@@ -1635,7 +1673,7 @@ mod tests {
         };
         let text = "a,b,c";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a ,b ,c");
+        assert_eq!(result.unwrap(), "a ,b ,c");
     }
 
     #[test]
@@ -1648,7 +1686,7 @@ mod tests {
         };
         let text = "a;b;c";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a ;b ;c");
+        assert_eq!(result.unwrap(), "a ;b ;c");
     }
 
     #[test]
@@ -1661,7 +1699,7 @@ mod tests {
         };
         let text = "a,b,c";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a , b , c");
+        assert_eq!(result.unwrap(), "a , b , c");
     }
 
     #[test]
@@ -1674,7 +1712,7 @@ mod tests {
         };
         let text = "a;b;c";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a ; b ; c");
+        assert_eq!(result.unwrap(), "a ; b ; c");
     }
 
     #[test]
@@ -1688,7 +1726,7 @@ mod tests {
         // Already has spaces before punctuation - should not add more
         let text = "a ,b ;c";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a ,b ;c"); // No change because space already exists
+        assert!(result.is_none()); // No change because space already exists
     }
 
     #[test]
@@ -1702,7 +1740,7 @@ mod tests {
         // Already has spaces after punctuation - should not add more
         let text = "a, b; c";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a, b; c"); // No change because space already exists
+        assert!(result.is_none()); // No change because space already exists
     }
 
     #[test]
@@ -1716,7 +1754,7 @@ mod tests {
         // Comma/semicolon at the beginning should not add space before
         let text = ",a;b";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, ",a ;b"); // No space before first comma
+        assert_eq!(result.unwrap(), ",a ;b"); // No space before first comma
     }
 
     #[test]
@@ -1729,7 +1767,7 @@ mod tests {
         };
         let text = "a,b;c,d";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a ,b ; c ,d");
+        assert_eq!(result.unwrap(), "a ,b ; c ,d");
     }
 
     // Tests for new operators
@@ -1746,7 +1784,7 @@ mod tests {
         };
         let text = "a:=5+b+=c-=d*=e/=f";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a := 5 + b += c -= d *= e /= f");
+        assert_eq!(result.unwrap(), "a := 5 + b += c -= d *= e /= f");
     }
 
     #[test]
@@ -1763,7 +1801,7 @@ mod tests {
         };
         let text = "if a<b=c<>d>e<=f>=g then";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "if a < b = c <> d > e <= f >= g then");
+        assert_eq!(result.unwrap(), "if a < b = c <> d > e <= f >= g then");
     }
 
     #[test]
@@ -1778,7 +1816,7 @@ mod tests {
         };
         let text = "result:=a+b-c*d/e";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "result := a + b - c * d / e");
+        assert_eq!(result.unwrap(), "result := a + b - c * d / e");
     }
 
     #[test]
@@ -1790,7 +1828,7 @@ mod tests {
         };
         let text = "var x:Integer;y:String;z:Boolean";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "var x: Integer; y: String; z: Boolean");
+        assert_eq!(result.unwrap(), "var x: Integer; y: String; z: Boolean");
     }
 
     #[test]
@@ -1806,7 +1844,7 @@ mod tests {
         };
         let text = "a+b-c*d/e=f";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "a+b-c*d/e=f"); // Should remain unchanged for these operators
+        assert!(result.is_none()); // Should remain unchanged for these operators
     }
 
     #[test]
@@ -1822,7 +1860,7 @@ mod tests {
         let result = apply_text_changes(text, &options);
         // Operators inside string and comments should not be spaced
         assert_eq!(
-            result,
+            result.unwrap(),
             "msg := 'a:=b+c'; // Comment with := and + and =\nresult := x = y + z"
         );
     }
@@ -1839,7 +1877,7 @@ mod tests {
         let text = "a++b--c==d";
         let result = apply_text_changes(text, &options);
         // Consecutive same operators should not have space between them (correct behavior)
-        assert_eq!(result, "a ++ b -- c == d");
+        assert_eq!(result.unwrap(), "a ++ b -- c == d");
     }
 
     // Tests for colon numeric exception
@@ -1854,7 +1892,7 @@ mod tests {
         // Time format - should not have spaces when numeric exception is enabled
         let text = "time := 12:34:56;";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "time := 12:34:56;");
+        assert!(result.is_none());
     }
 
     #[test]
@@ -1868,7 +1906,7 @@ mod tests {
         // When exception is disabled, spaces should be added around all colons
         let text = "time := 12:34:56;";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "time := 12 : 34 : 56;");
+        assert_eq!(result.unwrap(), "time := 12 : 34 : 56;");
     }
 
     #[test]
@@ -1882,7 +1920,7 @@ mod tests {
         // Mix of numeric (no space) and non-numeric (with space) colons
         let text = "var x: Integer; time := 12:34;";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "var x : Integer; time := 12:34;");
+        assert_eq!(result.unwrap(), "var x : Integer; time := 12:34;");
     }
 
     #[test]
@@ -1897,7 +1935,7 @@ mod tests {
         // Ensure ':=' assignment is handled separately from single ':'
         let text = "time:=12:34; x:Integer;";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "time := 12:34; x : Integer;");
+        assert_eq!(result.unwrap(), "time := 12:34; x : Integer;");
     }
 
     #[test]
@@ -1911,7 +1949,7 @@ mod tests {
         // Test edge cases: colon at start, end, and with non-digits
         let text = ":start x:y 3:z end: 12:34";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, ": start x : y 3 : z end : 12:34");
+        assert_eq!(result.unwrap(), ": start x : y 3 : z end : 12:34");
     }
 
     #[test]
@@ -1925,6 +1963,6 @@ mod tests {
         // Test with only 'After' spacing - numeric exception should still work
         let text = "x:Integer; time := 12:34;";
         let result = apply_text_changes(text, &options);
-        assert_eq!(result, "x: Integer; time := 12:34;");
+        assert_eq!(result.unwrap(), "x: Integer; time := 12:34;");
     }
 }
