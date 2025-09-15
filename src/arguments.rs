@@ -40,6 +40,7 @@ pub enum Command {
     InitConfig,
     Parse,
     ParseDebug,
+    Version,
 }
 
 pub struct Arguments {
@@ -106,6 +107,8 @@ enum CliCommand {
         #[arg(long = "multi")]
         multi: bool,
     },
+    /// Print version information
+    Version,
 }
 
 /// Find a configuration file named 'dfixxer.toml' starting from the
@@ -209,6 +212,13 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
             config_path: None,
             log_level: cli.log_level,
             multi,
+        }),
+        CliCommand::Version => Ok(Arguments {
+            command: Command::Version,
+            filename: String::new(), // No filename needed for version command
+            config_path: None,
+            log_level: cli.log_level,
+            multi: false,
         }),
     }
 }

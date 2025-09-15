@@ -190,6 +190,12 @@ fn run() -> Result<i32, DFixxerError> {
     let args: Vec<String> = std::env::args().collect();
     let arguments = parse_args(args)?;
 
+    // Handle version command immediately
+    if matches!(arguments.command, Command::Version) {
+        println!("dfixxer {}", env!("CARGO_PKG_VERSION"));
+        return Ok(0);
+    }
+
     // Expand filename pattern if multi flag is set, but only for commands that support it
     let filenames = match &arguments.command {
         Command::UpdateFile | Command::CheckFile | Command::Parse | Command::ParseDebug => {
@@ -198,6 +204,10 @@ fn run() -> Result<i32, DFixxerError> {
         Command::InitConfig => {
             // InitConfig doesn't use multi mode
             vec![arguments.filename.clone()]
+        }
+        Command::Version => {
+            // Version doesn't need filenames, but this is unreachable due to early return
+            vec![]
         }
     };
 
@@ -311,6 +321,10 @@ fn run() -> Result<i32, DFixxerError> {
                 let source = std::fs::read_to_string(filename)?;
                 let parse_result = parse(&source)?;
                 println!("{:#?}", parse_result);
+                0
+            }
+            Command::Version => {
+                // This is unreachable due to early return above, but included for completeness
                 0
             }
         };
