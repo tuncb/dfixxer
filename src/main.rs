@@ -15,7 +15,7 @@ use replacements::{
     TextReplacement, compute_source_sections, merge_replacements, print_replacements,
 };
 mod parser;
-use parser::parse;
+use parser::{parse, parse_with_spacing_context};
 
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
@@ -107,18 +107,20 @@ fn process_file(
     let source = timing.time_operation_result("File loading", || load_file(filename))?;
 
     // Time parsing
-    let parse_result = timing.time_operation_result("Parsing", || parse(&source))?;
+    let (parse_result, spacing_context) =
+        timing.time_operation_result("Parsing", || parse_with_spacing_context(&source))?;
 
     // Helper function to apply text transformations to a replacement if enabled
     let apply_text_transformation_if_enabled =
         |replacement: TextReplacement| -> Option<TextReplacement> {
             if options.transformations.enable_text_transformations {
                 let text = replacement.text.as_str();
-                transform_text::apply_text_transformation(
+                transform_text::apply_text_transformation_with_context(
                     replacement.start,
                     replacement.end,
                     text,
                     &options.text_changes,
+                    Some(&spacing_context),
                 )
                 .or(Some(replacement)) // Return original if no changes needed
             } else {
@@ -171,11 +173,12 @@ fn process_file(
             // Apply text transformation to each section and add to replacements if there's a change
             for section in sections {
                 let text = &source[section.start..section.end];
-                if let Some(transformation) = transform_text::apply_text_transformation(
+                if let Some(transformation) = transform_text::apply_text_transformation_with_context(
                     section.start,
                     section.end,
                     text,
                     &options.text_changes,
+                    Some(&spacing_context),
                 ) {
                     replacements.push(transformation);
                 }

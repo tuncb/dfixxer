@@ -1,15 +1,28 @@
 use crate::options::{SpaceOperation, TextChangeOptions};
+use crate::parser::SpacingContext;
 use crate::replacements::TextReplacement;
 
 /// Apply text transformations based on the given options to a text string
 /// Returns None if there are no changes, Some(replacement) if changes are made
+#[allow(dead_code)]
 pub fn apply_text_transformation(
     start: usize,
     end: usize,
     text: &str,
     options: &TextChangeOptions,
 ) -> Option<TextReplacement> {
-    apply_text_changes(text, options).map(|modified| TextReplacement {
+    apply_text_transformation_with_context(start, end, text, options, None)
+}
+
+/// Apply text transformations using optional AST-derived spacing context.
+pub fn apply_text_transformation_with_context(
+    start: usize,
+    end: usize,
+    text: &str,
+    options: &TextChangeOptions,
+    context: Option<&SpacingContext>,
+) -> Option<TextReplacement> {
+    apply_text_changes(text, options, start, context).map(|modified| TextReplacement {
         start,
         end,
         text: modified,
@@ -41,6 +54,8 @@ fn should_add_space_before(
         }
     }
 }
+
+type CharIter<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
 // Helper functions for operator handling
 fn active_buf<'a>(
@@ -77,8 +92,8 @@ fn ensure_one_space_before(buf: &mut String) {
     }
 }
 
-fn consume_following_ws(chars: &mut std::iter::Peekable<std::str::Chars>) {
-    while let Some(&c) = chars.peek() {
+fn consume_following_ws(chars: &mut CharIter<'_>) {
+    while let Some(&(_, c)) = chars.peek() {
         if c == ' ' || c == '\t' {
             chars.next();
         } else {
@@ -89,12 +104,12 @@ fn consume_following_ws(chars: &mut std::iter::Peekable<std::str::Chars>) {
 
 fn maybe_add_space_after(
     op: &SpaceOperation,
-    chars: &mut std::iter::Peekable<std::str::Chars>,
+    chars: &mut CharIter<'_>,
     buf: &mut String,
 ) {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
-            if let Some(nc) = chars.peek().copied() {
+            if let Some((_, nc)) = chars.peek().copied() {
                 if !nc.is_whitespace() {
                     buf.push(' ');
                 }
@@ -124,13 +139,13 @@ fn one_space_before_if_needed(buf: &mut String, op_char: char) {
 
 fn space_after_if_needed(
     op: &SpaceOperation,
-    chars: &mut std::iter::Peekable<std::str::Chars>,
+    chars: &mut CharIter<'_>,
     buf: &mut String,
     this_char: char,
 ) {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
-            if let Some(nc) = chars.peek().copied() {
+            if let Some((_, nc)) = chars.peek().copied() {
                 // Do not add space if the next char is identical (e.g., ++, --, ==)
                 if !nc.is_whitespace() && nc != this_char {
                     buf.push(' ');
@@ -145,7 +160,7 @@ fn space_after_if_needed(
 fn handle_two_char_operator(
     first_char: char,
     second_char: char,
-    chars: &mut std::iter::Peekable<std::str::Chars>,
+    chars: &mut CharIter<'_>,
     operation: &SpaceOperation,
     prev_char: Option<char>,
     current_line: &mut String,
@@ -162,7 +177,7 @@ fn handle_two_char_operator(
             }
             push_char(first_char, current_line, result);
             push_char(second_char, current_line, result);
-            if should_add_space_after(operation, chars.peek().copied(), second_char) {
+            if should_add_space_after(operation, chars.peek().map(|(_, ch)| *ch), second_char) {
                 push_char(' ', current_line, result);
             }
         }
@@ -187,7 +202,7 @@ fn handle_two_char_operator(
 /// Helper function to handle multi-character operators
 fn handle_operator(
     current_char: char,
-    chars: &mut std::iter::Peekable<std::str::Chars>,
+    chars: &mut CharIter<'_>,
     operation: &SpaceOperation,
     prev_char: Option<char>,
     current_line: &mut String,
@@ -196,7 +211,7 @@ fn handle_operator(
     do_trim: bool,
 ) -> Option<String> {
     // Check for multi-character operators starting with current_char
-    let next_char = chars.peek().copied();
+    let next_char = chars.peek().map(|(_, ch)| *ch);
 
     match (current_char, next_char) {
         // Two-character operators
@@ -283,8 +298,35 @@ fn should_skip_colon_spacing(
     }
 }
 
+fn is_negative_literal_minus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.map_or(false, |ctx| ctx.negative_literal_minus_positions.contains(&abs_pos))
+}
+
+fn is_unary_minus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.map_or(false, |ctx| ctx.unary_minus_positions.contains(&abs_pos))
+}
+
+fn is_unary_plus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.map_or(false, |ctx| ctx.unary_plus_positions.contains(&abs_pos))
+}
+
+fn is_positive_literal_plus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.map_or(false, |ctx| {
+        ctx.positive_literal_plus_positions.contains(&abs_pos)
+    })
+}
+
+fn is_generic_angle(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.map_or(false, |ctx| ctx.generic_angle_positions.contains(&abs_pos))
+}
+
 /// Apply all text changes to a text string based on the given options
-fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String> {
+fn apply_text_changes(
+    text: &str,
+    options: &TextChangeOptions,
+    start_offset: usize,
+    context: Option<&SpacingContext>,
+) -> Option<String> {
     // State machine to skip Delphi string literals and comments for spacing insertion.
     // We still may trim trailing whitespace (optionally) per line, but trimming is safe
     // inside comments / strings per spec given by user.
@@ -299,7 +341,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
 
     let mut result = String::with_capacity(text.len());
     let mut state = State::Code;
-    let mut chars = text.chars().peekable();
+    let mut chars = text.char_indices().peekable();
     let mut prev_char: Option<char> = None;
 
     // For trimming we accumulate current line raw output, then on newline flush trimmed.
@@ -330,7 +372,8 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
 
 
 
-    while let Some(ch) = chars.next() {
+    while let Some((idx, ch)) = chars.next() {
+        let abs_pos = start_offset + idx;
         match state {
             State::Code => {
                 match ch {
@@ -346,9 +389,9 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                     }
                     '(' => {
                         // Could start (* comment *)
-                        if let Some('*') = chars.peek().copied() {
+                        if let Some((_, '*')) = chars.peek().copied() {
                             // consume '*'
-                            let star = chars.next().unwrap();
+                            let (_, star) = chars.next().unwrap();
                             push_char('(', &mut current_line, &mut result);
                             push_char(star, &mut current_line, &mut result);
                             state = State::ParenStarComment;
@@ -357,9 +400,9 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                         }
                     }
                     '/' => {
-                        if let Some('/') = chars.peek().copied() {
+                        if let Some((_, '/')) = chars.peek().copied() {
                             // line comment
-                            let slash2 = chars.next().unwrap();
+                            let (_, slash2) = chars.next().unwrap();
                             push_char('/', &mut current_line, &mut result);
                             push_char(slash2, &mut current_line, &mut result);
                             state = State::LineComment;
@@ -383,7 +426,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     push_char('/', &mut current_line, &mut result);
                                     if should_add_space_after(
                                         &options.fdiv,
-                                        chars.peek().copied(),
+                                        chars.peek().map(|(_, ch)| *ch),
                                         '/',
                                     ) {
                                         push_char(' ', &mut current_line, &mut result);
@@ -423,7 +466,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                 push_char(',', &mut current_line, &mut result);
                                 if should_add_space_after(
                                     &options.comma,
-                                    chars.peek().copied(),
+                                    chars.peek().map(|(_, ch)| *ch),
                                     ',',
                                 ) {
                                     push_char(' ', &mut current_line, &mut result);
@@ -450,7 +493,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     &mut result
                                 };
                                 // For comma: only add space if next char is not punctuation we purposely keep adjacent (semicolon)
-                                if let Some(nc) = chars.peek().copied() {
+                                if let Some((_, nc)) = chars.peek().copied() {
                                     if nc == ';' {
                                         // We still want exactly one space after comma before semicolon if comma rule demands After
                                         if matches!(
@@ -476,7 +519,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                             push_char(';', &mut current_line, &mut result);
                             if should_add_space_after(
                                 &options.semi_colon,
-                                chars.peek().copied(),
+                                chars.peek().map(|(_, ch)| *ch),
                                 ';',
                             ) {
                                 push_char(' ', &mut current_line, &mut result);
@@ -504,7 +547,12 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                         }
                     },
                     '<' => {
-                        if let Some(_handled) = handle_operator(
+                        if is_generic_angle(context, abs_pos) {
+                            let buf = active_buf(do_trim, &mut current_line, &mut result);
+                            remove_trailing_ws(buf);
+                            push_char('<', &mut current_line, &mut result);
+                            consume_following_ws(&mut chars);
+                        } else if let Some(_handled) = handle_operator(
                             ch,
                             &mut chars,
                             &options.lte,
@@ -535,7 +583,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     push_char('<', &mut current_line, &mut result);
                                     if should_add_space_after(
                                         &options.lt,
-                                        chars.peek().copied(),
+                                        chars.peek().map(|(_, ch)| *ch),
                                         '<',
                                     ) {
                                         push_char(' ', &mut current_line, &mut result);
@@ -572,7 +620,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                 push_char(' ', &mut current_line, &mut result);
                             }
                             push_char('=', &mut current_line, &mut result);
-                            if should_add_space_after(&options.eq, chars.peek().copied(), '=') {
+                            if should_add_space_after(&options.eq, chars.peek().map(|(_, ch)| *ch), '=') {
                                 push_char(' ', &mut current_line, &mut result);
                             }
                         }
@@ -598,7 +646,12 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                         }
                     },
                     '>' => {
-                        if let Some(_handled) = handle_operator(
+                        if is_generic_angle(context, abs_pos) {
+                            let buf = active_buf(do_trim, &mut current_line, &mut result);
+                            remove_trailing_ws(buf);
+                            push_char('>', &mut current_line, &mut result);
+                            consume_following_ws(&mut chars);
+                        } else if let Some(_handled) = handle_operator(
                             ch,
                             &mut chars,
                             &options.gte,
@@ -618,7 +671,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     push_char('>', &mut current_line, &mut result);
                                     if should_add_space_after(
                                         &options.gt,
-                                        chars.peek().copied(),
+                                        chars.peek().map(|(_, ch)| *ch),
                                         '>',
                                     ) {
                                         push_char(' ', &mut current_line, &mut result);
@@ -661,6 +714,11 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                             do_trim,
                         ) {
                             // '+=' handled by handle_operator
+                        } else if is_unary_plus(context, abs_pos)
+                            || is_positive_literal_plus(context, abs_pos)
+                        {
+                            push_char('+', &mut current_line, &mut result);
+                            consume_following_ws(&mut chars);
                         } else {
                             match options.add {
                                 SpaceOperation::NoChange => {
@@ -670,7 +728,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     push_char('+', &mut current_line, &mut result);
                                     if should_add_space_after(
                                         &options.add,
-                                        chars.peek().copied(),
+                                        chars.peek().map(|(_, ch)| *ch),
                                         '+',
                                     ) {
                                         push_char(' ', &mut current_line, &mut result);
@@ -713,6 +771,11 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                             do_trim,
                         ) {
                             // '-=' handled by handle_operator
+                        } else if is_negative_literal_minus(context, abs_pos)
+                            || is_unary_minus(context, abs_pos)
+                        {
+                            push_char('-', &mut current_line, &mut result);
+                            consume_following_ws(&mut chars);
                         } else {
                             match options.sub {
                                 SpaceOperation::NoChange => {
@@ -722,7 +785,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     push_char('-', &mut current_line, &mut result);
                                     if should_add_space_after(
                                         &options.sub,
-                                        chars.peek().copied(),
+                                        chars.peek().map(|(_, ch)| *ch),
                                         '-',
                                     ) {
                                         push_char(' ', &mut current_line, &mut result);
@@ -774,7 +837,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     push_char('*', &mut current_line, &mut result);
                                     if should_add_space_after(
                                         &options.mul,
-                                        chars.peek().copied(),
+                                        chars.peek().map(|(_, ch)| *ch),
                                         '*',
                                     ) {
                                         push_char(' ', &mut current_line, &mut result);
@@ -823,7 +886,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                             let skip_spacing = should_skip_colon_spacing(
                                 options.colon_numeric_exception,
                                 prev_char,
-                                chars.peek().copied(),
+                                chars.peek().map(|(_, ch)| *ch),
                             );
                             match options.colon {
                                 SpaceOperation::NoChange => {
@@ -836,7 +899,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                     if !skip_spacing
                                         && should_add_space_after(
                                             &options.colon,
-                                            chars.peek().copied(),
+                                            chars.peek().map(|(_, ch)| *ch),
                                             ':',
                                         )
                                     {
@@ -866,7 +929,7 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                                             SpaceOperation::After | SpaceOperation::BeforeAndAfter
                                         )
                                     {
-                                        if let Some(nc) = chars.peek().copied() {
+                                        if let Some((_, nc)) = chars.peek().copied() {
                                             if !nc.is_whitespace() && nc != ':' {
                                                 push_char(' ', &mut current_line, &mut result);
                                             }
@@ -893,9 +956,9 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                     push_char(ch, &mut current_line, &mut result);
                     if ch == '\'' {
                         // Delphi/Pascal doubles '' inside a string to escape a single quote.
-                        if let Some('\'') = chars.peek().copied() {
+                        if let Some((_, '\'')) = chars.peek().copied() {
                             // This is an escaped quote, consume the second quote and stay in string
-                            let escaped_quote = chars.next().unwrap();
+                            let (_, escaped_quote) = chars.next().unwrap();
                             push_char(escaped_quote, &mut current_line, &mut result);
                             // Stay in StringLiteral state - this is still part of the string
                         } else {
@@ -933,8 +996,8 @@ fn apply_text_changes(text: &str, options: &TextChangeOptions) -> Option<String>
                     push_char(ch, &mut current_line, &mut result);
                     if ch == '*' {
                         // Look ahead for ) to end comment
-                        if let Some(')') = chars.peek().copied() {
-                            let closing_paren = chars.next().unwrap();
+                        if let Some((_, ')')) = chars.peek().copied() {
+                            let (_, closing_paren) = chars.next().unwrap();
                             push_char(closing_paren, &mut current_line, &mut result);
                             state = State::Code;
                         }
@@ -1089,7 +1152,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a, b;c, d");
     }
 
@@ -1102,7 +1165,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a,b; c,d");
     }
 
@@ -1115,7 +1178,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a, b; c, d");
     }
 
@@ -1128,7 +1191,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert!(result.is_none());
     }
 
@@ -1201,7 +1264,7 @@ mod tests {
             ..Default::default()
         };
         let text = "Line 1   \nLine 2\t\t\nLine 3 ";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "Line 1\nLine 2\nLine 3");
     }
 
@@ -1214,7 +1277,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b,c   \nd,e,f\t\t";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a, b, c\nd, e, f");
     }
 
@@ -1227,7 +1290,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d   \ne,f;g,h\t\t";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a, b; c, d\ne, f; g, h");
     }
 
@@ -1317,7 +1380,7 @@ mod tests {
         };
         // Test escaped single quotes in Delphi/Pascal strings
         let text = "s := 'It''s a test',x;y";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         // The comma/semicolon inside the string should not be spaced
         assert_eq!(result.unwrap(), "s := 'It''s a test', x; y");
     }
@@ -1332,7 +1395,7 @@ mod tests {
         };
         // Multiple escaped quotes and code after
         let text = "msg := 'Can''t say ''hello'', sorry',next";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(
             result.unwrap(),
             "msg := 'Can''t say ''hello'', sorry', next"
@@ -1349,7 +1412,7 @@ mod tests {
         };
         // Unterminated string that breaks at newline
         let text = "s := 'unterminated\ncode,after;break";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         // After line break, spacing should be applied
         assert_eq!(result.unwrap(), "s := 'unterminated\ncode, after; break");
     }
@@ -1364,7 +1427,7 @@ mod tests {
         };
         // Test multiline brace comments
         let text = "{ multi\nline,comment;here }\ncode,after";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "{ multi\nline,comment;here }\ncode, after");
     }
 
@@ -1378,7 +1441,7 @@ mod tests {
         };
         // Test multiline (* *) comments
         let text = "(* multi\nline,comment;here *)\ncode,after";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(
             result.unwrap(),
             "(* multi\nline,comment;here *)\ncode, after"
@@ -1395,7 +1458,7 @@ mod tests {
         };
         // Test trimming with both LF and CRLF
         let text = "line1   \r\nline2\t\t\nline3   ";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "line1\r\nline2\nline3");
     }
 
@@ -1410,7 +1473,7 @@ mod tests {
         };
         let text = "'a,b;c',x;y";
         // Only commas/semicolons outside the quotes should be spaced.
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "'a,b;c', x; y");
     }
 
@@ -1423,7 +1486,7 @@ mod tests {
             ..Default::default()
         };
         let text = "{a,b;c},x;y";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "{a,b;c}, x; y");
     }
 
@@ -1436,7 +1499,7 @@ mod tests {
             ..Default::default()
         };
         let text = "(*a,b;c*),x;y";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "(*a,b;c*), x; y");
     }
 
@@ -1449,7 +1512,7 @@ mod tests {
             ..Default::default()
         };
         let text = "// a,b;c\nx,y;z";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         // Only second line is transformed.
         assert_eq!(result.unwrap(), "// a,b;c\nx, y; z");
     }
@@ -1463,7 +1526,7 @@ mod tests {
             ..Default::default()
         };
         let text = "val:='a,b'; // c,d;e\n{ x,y;z } foo,bar;baz (* p,q;r *) qux,quux";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(
             result.unwrap(),
             "val := 'a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
@@ -1480,7 +1543,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b,c";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a ,b ,c");
     }
 
@@ -1493,7 +1556,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a;b;c";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a ;b ;c");
     }
 
@@ -1506,7 +1569,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b,c";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a , b , c");
     }
 
@@ -1519,7 +1582,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a;b;c";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a ; b ; c");
     }
 
@@ -1533,7 +1596,7 @@ mod tests {
         };
         // Already has spaces before punctuation - should not add more
         let text = "a ,b ;c";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert!(result.is_none()); // No change because space already exists
     }
 
@@ -1547,7 +1610,7 @@ mod tests {
         };
         // Already has spaces after punctuation - should not add more
         let text = "a, b; c";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert!(result.is_none()); // No change because space already exists
     }
 
@@ -1561,7 +1624,7 @@ mod tests {
         };
         // Comma/semicolon at the beginning should not add space before
         let text = ",a;b";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), ",a ;b"); // No space before first comma
     }
 
@@ -1574,7 +1637,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a ,b ; c ,d");
     }
 
@@ -1591,7 +1654,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a:=5+b+=c-=d*=e/=f";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "a := 5 + b += c -= d *= e /= f");
     }
 
@@ -1608,7 +1671,7 @@ mod tests {
             ..Default::default()
         };
         let text = "if a<b=c<>d>e<=f>=g then";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "if a < b = c <> d > e <= f >= g then");
     }
 
@@ -1623,7 +1686,7 @@ mod tests {
             ..Default::default()
         };
         let text = "result:=a+b-c*d/e";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "result := a + b - c * d / e");
     }
 
@@ -1635,7 +1698,7 @@ mod tests {
             ..Default::default()
         };
         let text = "var x:Integer;y:String;z:Boolean";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "var x: Integer; y: String; z: Boolean");
     }
 
@@ -1651,7 +1714,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a+b-c*d/e=f";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert!(result.is_none()); // Should remain unchanged for these operators
     }
 
@@ -1665,7 +1728,7 @@ mod tests {
             ..Default::default()
         };
         let text = "msg:='a:=b+c'; // Comment with := and + and =\nresult:=x=y+z";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         // Operators inside string and comments should not be spaced
         assert_eq!(
             result.unwrap(),
@@ -1683,7 +1746,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a++b--c==d";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         // Consecutive same operators should not have space between them (correct behavior)
         assert_eq!(result.unwrap(), "a ++ b -- c == d");
     }
@@ -1699,7 +1762,7 @@ mod tests {
         };
         // Time format - should not have spaces when numeric exception is enabled
         let text = "time := 12:34:56;";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert!(result.is_none());
     }
 
@@ -1713,7 +1776,7 @@ mod tests {
         };
         // When exception is disabled, spaces should be added around all colons
         let text = "time := 12:34:56;";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "time := 12 : 34 : 56;");
     }
 
@@ -1727,7 +1790,7 @@ mod tests {
         };
         // Mix of numeric (no space) and non-numeric (with space) colons
         let text = "var x: Integer; time := 12:34;";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "var x : Integer; time := 12:34;");
     }
 
@@ -1742,7 +1805,7 @@ mod tests {
         };
         // Ensure ':=' assignment is handled separately from single ':'
         let text = "time:=12:34; x:Integer;";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "time := 12:34; x : Integer;");
     }
 
@@ -1756,7 +1819,7 @@ mod tests {
         };
         // Test edge cases: colon at start, end, and with non-digits
         let text = ":start x:y 3:z end: 12:34";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), ": start x : y 3 : z end : 12:34");
     }
 
@@ -1770,7 +1833,79 @@ mod tests {
         };
         // Test with only 'After' spacing - numeric exception should still work
         let text = "x:Integer; time := 12:34;";
-        let result = apply_text_changes(text, &options);
+        let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "x: Integer; time := 12:34;");
+    }
+
+    #[test]
+    fn test_generic_angle_brackets_no_spacing() {
+        let source = "unit Test;\ninterface\nconst\n  AStructures: TEnumerable < TStructure >;\nimplementation\nend.";
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let result = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        );
+        assert_eq!(
+            result.unwrap().text,
+            "unit Test;\ninterface\nconst\n  AStructures: TEnumerable<TStructure>;\nimplementation\nend."
+        );
+    }
+
+    #[test]
+    fn test_unary_minus_no_spacing() {
+        let source = "unit Test;\ninterface\nconst\n  A = - 1;\nimplementation\nbegin\n  A := - 1;\n  A := - Foo;\n  A := -Foo(1);\nend.";
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let result = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        );
+        assert_eq!(
+            result.unwrap().text,
+            "unit Test;\ninterface\nconst\n  A = -1;\nimplementation\nbegin\n  A := -1;\n  A := -Foo;\n  A := -Foo(1);\nend."
+        );
+    }
+
+    #[test]
+    fn test_generic_angle_brackets_nested() {
+        let source = "unit Test;\ninterface\ntype\n  TMap = TDictionary < String, TList < Integer > >;\n  TNested = TOuter < TInner < Integer > >;\nimplementation\nend.";
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let result = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        );
+        assert_eq!(
+            result.unwrap().text,
+            "unit Test;\ninterface\ntype\n  TMap = TDictionary<String, TList<Integer>>;\n  TNested = TOuter<TInner<Integer>>;\nimplementation\nend."
+        );
+    }
+
+    #[test]
+    fn test_unary_plus_spacing() {
+        let source = "unit Test;\ninterface\nconst\n  A = + 1;\nimplementation\nbegin\n  A := + Foo;\n  A := +Foo(1);\n  A := + (1 + 2);\nend.";
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let result = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        );
+        assert_eq!(
+            result.unwrap().text,
+            "unit Test;\ninterface\nconst\n  A = +1;\nimplementation\nbegin\n  A := +Foo;\n  A := +Foo(1);\n  A := +(1 + 2);\nend."
+        );
     }
 }

@@ -1,4 +1,5 @@
 use crate::dfixxer_error::DFixxerError;
+use std::collections::HashSet;
 use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
 
@@ -68,6 +69,16 @@ pub struct CodeSection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseResult {
     pub code_sections: Vec<CodeSection>,
+}
+
+/// Collected spacing context derived from the AST for operator-aware formatting.
+#[derive(Debug, Clone, Default)]
+pub struct SpacingContext {
+    pub unary_minus_positions: HashSet<usize>,
+    pub unary_plus_positions: HashSet<usize>,
+    pub negative_literal_minus_positions: HashSet<usize>,
+    pub positive_literal_plus_positions: HashSet<usize>,
+    pub generic_angle_positions: HashSet<usize>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -162,6 +173,57 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
                     traverse_and_parse(child, code_sections);
                 }
             }
+        }
+    }
+}
+
+fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContext) {
+    match node.kind() {
+        "genericTpl" | "typerefTpl" | "genericDot" => {
+            let start = node.start_byte();
+            let end = node.end_byte();
+            if start < end && end <= source.len() {
+                let text = &source[start..end];
+                for (offset, ch) in text.char_indices() {
+                    if ch == '<' || ch == '>' {
+                        context.generic_angle_positions.insert(start + offset);
+                    }
+                }
+            }
+        }
+        "exprUnary" => {
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    match child.kind() {
+                        "kSub" => {
+                            context.unary_minus_positions.insert(child.start_byte());
+                        }
+                        "kAdd" => {
+                            context.unary_plus_positions.insert(child.start_byte());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        "literalNumber" => {
+            let start = node.start_byte();
+            let end = node.end_byte();
+            if start < end && end <= source.len() {
+                let text = &source[start..end];
+                if text.starts_with('-') {
+                    context.negative_literal_minus_positions.insert(start);
+                } else if text.starts_with('+') {
+                    context.positive_literal_plus_positions.insert(start);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_spacing_context(child, source, context);
         }
     }
 }
@@ -331,6 +393,20 @@ pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     traverse_and_parse(tree.root_node(), &mut code_sections);
 
     Ok(ParseResult { code_sections })
+}
+
+/// Parse source code and also collect spacing context for AST-aware text transformations.
+pub fn parse_with_spacing_context(
+    source: &str,
+) -> Result<(ParseResult, SpacingContext), DFixxerError> {
+    let tree = parse_to_tree(source)?;
+    let mut code_sections = Vec::new();
+    traverse_and_parse(tree.root_node(), &mut code_sections);
+
+    let mut spacing_context = SpacingContext::default();
+    collect_spacing_context(tree.root_node(), source, &mut spacing_context);
+
+    Ok((ParseResult { code_sections }, spacing_context))
 }
 
 /// Parse the source, create the tree-sitter tree, and print each node's kind and text
