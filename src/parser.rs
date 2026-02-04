@@ -78,6 +78,7 @@ pub struct SpacingContext {
     pub unary_plus_positions: HashSet<usize>,
     pub negative_literal_minus_positions: HashSet<usize>,
     pub positive_literal_plus_positions: HashSet<usize>,
+    pub exponent_sign_positions: HashSet<usize>,
     pub generic_angle_positions: HashSet<usize>,
 }
 
@@ -215,6 +216,16 @@ fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContex
                     context.negative_literal_minus_positions.insert(start);
                 } else if text.starts_with('+') {
                     context.positive_literal_plus_positions.insert(start);
+                }
+                let mut chars = text.char_indices().peekable();
+                while let Some((_, ch)) = chars.next() {
+                    if ch == 'e' || ch == 'E' {
+                        if let Some((sign_offset, sign_ch)) = chars.peek().copied() {
+                            if sign_ch == '-' || sign_ch == '+' {
+                                context.exponent_sign_positions.insert(start + sign_offset);
+                            }
+                        }
+                    }
                 }
             }
         }

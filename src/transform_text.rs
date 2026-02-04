@@ -316,6 +316,52 @@ fn is_positive_literal_plus(context: Option<&SpacingContext>, abs_pos: usize) ->
     })
 }
 
+fn is_exponent_sign(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.map_or(false, |ctx| ctx.exponent_sign_positions.contains(&abs_pos))
+}
+
+fn is_exponent_sign_lexical(text: &str, idx: usize) -> bool {
+    let bytes = text.as_bytes();
+    if idx >= bytes.len() {
+        return false;
+    }
+    let sign = bytes[idx];
+    if sign != b'+' && sign != b'-' {
+        return false;
+    }
+    if idx == 0 {
+        return false;
+    }
+    let e = bytes[idx - 1];
+    if e != b'E' && e != b'e' {
+        return false;
+    }
+    if idx < 2 {
+        return false;
+    }
+    let mut saw_digit = false;
+    let mut j: isize = idx as isize - 2;
+    while j >= 0 {
+        let b = bytes[j as usize];
+        if b.is_ascii_digit() {
+            saw_digit = true;
+        } else if b != b'.' {
+            break;
+        }
+        j -= 1;
+    }
+    if !saw_digit {
+        return false;
+    }
+    if j >= 0 {
+        let b = bytes[j as usize];
+        if b.is_ascii_alphabetic() || b == b'_' {
+            return false;
+        }
+    }
+    true
+}
+
 fn is_generic_angle(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
     context.map_or(false, |ctx| ctx.generic_angle_positions.contains(&abs_pos))
 }
@@ -716,6 +762,8 @@ fn apply_text_changes(
                             // '+=' handled by handle_operator
                         } else if is_unary_plus(context, abs_pos)
                             || is_positive_literal_plus(context, abs_pos)
+                            || is_exponent_sign(context, abs_pos)
+                            || is_exponent_sign_lexical(text, idx)
                         {
                             push_char('+', &mut current_line, &mut result);
                             consume_following_ws(&mut chars);
@@ -773,6 +821,8 @@ fn apply_text_changes(
                             // '-=' handled by handle_operator
                         } else if is_negative_literal_minus(context, abs_pos)
                             || is_unary_minus(context, abs_pos)
+                            || is_exponent_sign(context, abs_pos)
+                            || is_exponent_sign_lexical(text, idx)
                         {
                             push_char('-', &mut current_line, &mut result);
                             consume_following_ws(&mut chars);
@@ -1906,6 +1956,24 @@ mod tests {
         assert_eq!(
             result.unwrap().text,
             "unit Test;\ninterface\nconst\n  A = +1;\nimplementation\nbegin\n  A := +Foo;\n  A := +Foo(1);\n  A := +(1 + 2);\nend."
+        );
+    }
+
+    #[test]
+    fn test_exponent_sign_no_spacing() {
+        let source = "unit Test;\ninterface\nconst\n  A=1E-12;\n  B=1E+12;\nimplementation\nend.";
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let result = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        );
+        assert_eq!(
+            result.unwrap().text,
+            "unit Test;\ninterface\nconst\n  A = 1E-12;\n  B = 1E+12;\nimplementation\nend."
         );
     }
 }
