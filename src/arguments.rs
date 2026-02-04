@@ -162,7 +162,11 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
     };
 
     match cli.command {
-        CliCommand::Update { filename, config, multi } => {
+        CliCommand::Update {
+            filename,
+            config,
+            multi,
+        } => {
             // If --config was not provided, try to find dfixxer.toml upward from the file's directory
             let config_path = match config {
                 Some(path) => Some(path),
@@ -177,7 +181,11 @@ pub fn parse_args(args: Vec<String>) -> Result<Arguments, DFixxerError> {
                 multi,
             })
         }
-        CliCommand::Check { filename, config, multi } => {
+        CliCommand::Check {
+            filename,
+            config,
+            multi,
+        } => {
             // If --config was not provided, try to find dfixxer.toml upward from the file's directory
             let config_path = match config {
                 Some(path) => Some(path),

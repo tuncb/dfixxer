@@ -61,7 +61,7 @@ mod tests {
         let replacement = replacement.unwrap();
         assert_eq!(replacement.start, 13); // After "Foo"
         assert_eq!(replacement.end, 13); // Insert, don't replace
-    assert_eq!(replacement.text, "()".to_string());
+        assert_eq!(replacement.text, "()".to_string());
     }
 
     #[test]

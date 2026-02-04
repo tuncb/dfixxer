@@ -102,11 +102,7 @@ fn consume_following_ws(chars: &mut CharIter<'_>) {
     }
 }
 
-fn maybe_add_space_after(
-    op: &SpaceOperation,
-    chars: &mut CharIter<'_>,
-    buf: &mut String,
-) {
+fn maybe_add_space_after(op: &SpaceOperation, chars: &mut CharIter<'_>, buf: &mut String) {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
             if let Some((_, nc)) = chars.peek().copied() {
@@ -216,35 +212,123 @@ fn handle_operator(
     match (current_char, next_char) {
         // Two-character operators
         ('<', Some('=')) => {
-            handle_two_char_operator('<', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, "<=");
+            handle_two_char_operator(
+                '<',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                "<=",
+            );
             Some("<=".to_string())
         }
         ('<', Some('>')) => {
-            handle_two_char_operator('<', '>', chars, operation, prev_char, current_line, result, push_char, do_trim, "<>");
+            handle_two_char_operator(
+                '<',
+                '>',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                "<>",
+            );
             Some("<>".to_string())
         }
         ('>', Some('=')) => {
-            handle_two_char_operator('>', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, ">=");
+            handle_two_char_operator(
+                '>',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                ">=",
+            );
             Some(">=".to_string())
         }
         (':', Some('=')) => {
-            handle_two_char_operator(':', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, ":=");
+            handle_two_char_operator(
+                ':',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                ":=",
+            );
             Some(":=".to_string())
         }
         ('+', Some('=')) => {
-            handle_two_char_operator('+', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, "+=");
+            handle_two_char_operator(
+                '+',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                "+=",
+            );
             Some("+=".to_string())
         }
         ('-', Some('=')) => {
-            handle_two_char_operator('-', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, "-=");
+            handle_two_char_operator(
+                '-',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                "-=",
+            );
             Some("-=".to_string())
         }
         ('*', Some('=')) => {
-            handle_two_char_operator('*', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, "*=");
+            handle_two_char_operator(
+                '*',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                "*=",
+            );
             Some("*=".to_string())
         }
         ('/', Some('=')) => {
-            handle_two_char_operator('/', '=', chars, operation, prev_char, current_line, result, push_char, do_trim, "/=");
+            handle_two_char_operator(
+                '/',
+                '=',
+                chars,
+                operation,
+                prev_char,
+                current_line,
+                result,
+                push_char,
+                do_trim,
+                "/=",
+            );
             Some("/=".to_string())
         }
         _ => None, // Not a multi-character operator
@@ -299,7 +383,9 @@ fn should_skip_colon_spacing(
 }
 
 fn is_negative_literal_minus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| ctx.negative_literal_minus_positions.contains(&abs_pos))
+    context.map_or(false, |ctx| {
+        ctx.negative_literal_minus_positions.contains(&abs_pos)
+    })
 }
 
 fn is_unary_minus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
@@ -415,8 +501,6 @@ fn apply_text_changes(
             result.push(newline);
         }
     };
-
-
 
     while let Some((idx, ch)) = chars.next() {
         let abs_pos = start_offset + idx;
@@ -666,7 +750,11 @@ fn apply_text_changes(
                                 push_char(' ', &mut current_line, &mut result);
                             }
                             push_char('=', &mut current_line, &mut result);
-                            if should_add_space_after(&options.eq, chars.peek().map(|(_, ch)| *ch), '=') {
+                            if should_add_space_after(
+                                &options.eq,
+                                chars.peek().map(|(_, ch)| *ch),
+                                '=',
+                            ) {
                                 push_char(' ', &mut current_line, &mut result);
                             }
                         }

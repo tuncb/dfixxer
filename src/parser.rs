@@ -134,28 +134,36 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
         }
         "kInterface" => {
             // When we find an interface node, transform it into a CodeSection (no siblings)
-            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Interface) {
+            if let Some(code_section) =
+                transform_single_keyword_to_code_section(node, Kind::Interface)
+            {
                 code_sections.push(code_section);
             }
             return;
         }
         "kImplementation" => {
             // When we find an implementation node, transform it into a CodeSection (no siblings)
-            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Implementation) {
+            if let Some(code_section) =
+                transform_single_keyword_to_code_section(node, Kind::Implementation)
+            {
                 code_sections.push(code_section);
             }
             return;
         }
         "kInitialization" => {
             // When we find an initialization node, transform it into a CodeSection (no siblings)
-            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Initialization) {
+            if let Some(code_section) =
+                transform_single_keyword_to_code_section(node, Kind::Initialization)
+            {
                 code_sections.push(code_section);
             }
             return;
         }
         "kFinalization" => {
             // When we find a finalization node, transform it into a CodeSection (no siblings)
-            if let Some(code_section) = transform_single_keyword_to_code_section(node, Kind::Finalization) {
+            if let Some(code_section) =
+                transform_single_keyword_to_code_section(node, Kind::Finalization)
+            {
                 code_sections.push(code_section);
             }
             return;
@@ -180,7 +188,7 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
 
 fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContext) {
     match node.kind() {
-        "genericTpl" | "typerefTpl" | "genericDot" => {
+        "genericTpl" | "typerefTpl" | "genericDot" | "exprTpl" => {
             let start = node.start_byte();
             let end = node.end_byte();
             if start < end && end <= source.len() {
@@ -371,8 +379,9 @@ fn transform_procedure_declaration_to_code_section(declproc_node: Node) -> Optio
     }
 
     // Only process if we have the pattern without declArgs
-    if let (Some(proc_func), Some(identifier), Some(semicolon)) = 
-        (proc_or_func_node, identifier_node, semicolon_node) {
+    if let (Some(proc_func), Some(identifier), Some(semicolon)) =
+        (proc_or_func_node, identifier_node, semicolon_node)
+    {
         if !has_decl_args {
             // Determine if it's a procedure or function
             let kind = if proc_func.kind() == "kProcedure" {
@@ -429,7 +438,10 @@ pub fn parse_raw(source: &str) -> Result<(), DFixxerError> {
         let kind = node.kind();
         let text = node.utf8_text(source.as_bytes()).unwrap_or("");
         let error_info = if node.has_error() { " | ERROR" } else { "" };
-        println!("{}Node kind: {} | Text: {}{}", indent, kind, text, error_info);
+        println!(
+            "{}Node kind: {} | Text: {}{}",
+            indent, kind, text, error_info
+        );
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
                 print_node(child, depth + 1, source);
@@ -683,7 +695,7 @@ end."#;
             // Each should have identifier and semicolon in siblings
             let has_identifier = section.siblings.iter().any(|s| s.kind == Kind::Identifier);
             let has_semicolon = section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
-            
+
             assert!(has_identifier, "Should have identifier in siblings");
             assert!(has_semicolon, "Should have semicolon in siblings");
         }
@@ -717,7 +729,7 @@ end."#;
             // Each should have identifier and semicolon in siblings
             let has_identifier = section.siblings.iter().any(|s| s.kind == Kind::Identifier);
             let has_semicolon = section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
-            
+
             assert!(has_identifier, "Should have identifier in siblings");
             assert!(has_semicolon, "Should have semicolon in siblings");
         }
@@ -740,10 +752,15 @@ end."#;
             .code_sections
             .iter()
             .filter(|cs| {
-                cs.keyword.kind == Kind::ProcedureDeclaration || cs.keyword.kind == Kind::FunctionDeclaration
+                cs.keyword.kind == Kind::ProcedureDeclaration
+                    || cs.keyword.kind == Kind::FunctionDeclaration
             })
             .collect();
 
-        assert_eq!(proc_func_sections.len(), 0, "Should not detect procedures/functions that already have parentheses");
+        assert_eq!(
+            proc_func_sections.len(),
+            0,
+            "Should not detect procedures/functions that already have parentheses"
+        );
     }
 }

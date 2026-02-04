@@ -33,12 +33,7 @@ pub fn transform_single_keyword_section(
         adjust_replacement_for_line_position(source, keyword_start, lowercase_keyword, options);
 
     // Create replacement if the text is different
-    create_text_replacement_if_different(
-        source,
-        replacement_start,
-        keyword_end,
-        replacement_text,
-    )
+    create_text_replacement_if_different(source, replacement_start, keyword_end, replacement_text)
 }
 
 #[cfg(test)]
