@@ -39,7 +39,7 @@ pub fn adjust_replacement_for_line_position(
         line_start
     } else if !prefix.is_empty() {
         // Non-whitespace characters before section - add a newline before the section
-        replacement_text = format!("{}{}", options.line_ending.to_string(), replacement_text);
+        replacement_text = format!("{}{}", options.line_ending, replacement_text);
         section_start_byte
     } else {
         // If prefix is empty, section is already at start of line, no adjustment needed

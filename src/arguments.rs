@@ -252,10 +252,10 @@ pub fn expand_filename_pattern(filename: &str, multi: bool) -> Result<Vec<String
                         }
                     }
                     Err(e) => {
-                        return Err(DFixxerError::IoError(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Error processing glob pattern '{}': {}", filename, e),
-                        )));
+                        return Err(DFixxerError::IoError(std::io::Error::other(format!(
+                            "Error processing glob pattern '{}': {}",
+                            filename, e
+                        ))));
                     }
                 }
             }
@@ -271,9 +271,9 @@ pub fn expand_filename_pattern(filename: &str, multi: bool) -> Result<Vec<String
             files.sort();
             Ok(files)
         }
-        Err(e) => Err(DFixxerError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Invalid glob pattern '{}': {}", filename, e),
-        ))),
+        Err(e) => Err(DFixxerError::IoError(std::io::Error::other(format!(
+            "Invalid glob pattern '{}': {}",
+            filename, e
+        )))),
     }
 }

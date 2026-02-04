@@ -114,7 +114,6 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
                 code_sections.push(code_section);
             }
             // Continue parsing after this uses section (no need to traverse children)
-            return;
         }
         "kProgram" => {
             // When we find a program node, try to transform it into a CodeSection
@@ -122,7 +121,6 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
                 code_sections.push(code_section);
             }
             // Continue parsing after this program statement (no need to traverse children)
-            return;
         }
         "kUnit" => {
             // When we find a unit node, try to transform it into a CodeSection
@@ -130,7 +128,6 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
                 code_sections.push(code_section);
             }
             // Continue parsing after this unit statement (no need to traverse children)
-            return;
         }
         "kInterface" => {
             // When we find an interface node, transform it into a CodeSection (no siblings)
@@ -139,7 +136,6 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
             {
                 code_sections.push(code_section);
             }
-            return;
         }
         "kImplementation" => {
             // When we find an implementation node, transform it into a CodeSection (no siblings)
@@ -148,7 +144,6 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
             {
                 code_sections.push(code_section);
             }
-            return;
         }
         "kInitialization" => {
             // When we find an initialization node, transform it into a CodeSection (no siblings)
@@ -157,7 +152,6 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
             {
                 code_sections.push(code_section);
             }
-            return;
         }
         "kFinalization" => {
             // When we find a finalization node, transform it into a CodeSection (no siblings)
@@ -166,14 +160,12 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
             {
                 code_sections.push(code_section);
             }
-            return;
         }
         "declProc" => {
             // Check if this is a procedure or function declaration without parentheses
             if let Some(code_section) = transform_procedure_declaration_to_code_section(node) {
                 code_sections.push(code_section);
             }
-            return;
         }
         _ => {
             // For other node types, continue traversing children
@@ -227,12 +219,11 @@ fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContex
                 }
                 let mut chars = text.char_indices().peekable();
                 while let Some((_, ch)) = chars.next() {
-                    if ch == 'e' || ch == 'E' {
-                        if let Some((sign_offset, sign_ch)) = chars.peek().copied() {
-                            if sign_ch == '-' || sign_ch == '+' {
-                                context.exponent_sign_positions.insert(start + sign_offset);
-                            }
-                        }
+                    if (ch == 'e' || ch == 'E')
+                        && let Some((sign_offset, sign_ch)) = chars.peek().copied()
+                        && (sign_ch == '-' || sign_ch == '+')
+                    {
+                        context.exponent_sign_positions.insert(start + sign_offset);
                     }
                 }
             }
@@ -381,24 +372,24 @@ fn transform_procedure_declaration_to_code_section(declproc_node: Node) -> Optio
     // Only process if we have the pattern without declArgs
     if let (Some(proc_func), Some(identifier), Some(semicolon)) =
         (proc_or_func_node, identifier_node, semicolon_node)
+        && !has_decl_args
     {
-        if !has_decl_args {
-            // Determine if it's a procedure or function
-            let kind = if proc_func.kind() == "kProcedure" {
-                Kind::ProcedureDeclaration
-            } else {
-                Kind::FunctionDeclaration
-            };
+        // Determine if it's a procedure or function
+        let kind = if proc_func.kind() == "kProcedure" {
+            Kind::ProcedureDeclaration
+        } else {
+            Kind::FunctionDeclaration
+        };
 
-            let mut siblings = Vec::new();
-            siblings.push(node_to_parsed_node(identifier, Kind::Identifier));
-            siblings.push(node_to_parsed_node(semicolon, Kind::Semicolon));
+        let siblings = vec![
+            node_to_parsed_node(identifier, Kind::Identifier),
+            node_to_parsed_node(semicolon, Kind::Semicolon),
+        ];
 
-            return Some(CodeSection {
-                keyword: node_to_parsed_node(proc_func, kind),
-                siblings,
-            });
-        }
+        return Some(CodeSection {
+            keyword: node_to_parsed_node(proc_func, kind),
+            siblings,
+        });
     }
 
     None

@@ -133,33 +133,30 @@ fn process_file(
         parse_result
             .code_sections
             .iter()
-            .filter_map(|code_section| {
-                let transformation = match code_section.keyword.kind {
-                    parser::Kind::Uses if options.transformations.enable_uses_section => {
-                        transform_uses_section(code_section, &options, &source)
-                    }
-                    parser::Kind::Unit | parser::Kind::Program
-                        if options.transformations.enable_unit_program_section =>
-                    {
-                        transform_unit_program_section(code_section, &options, &source)
-                    }
-                    parser::Kind::Interface
-                    | parser::Kind::Implementation
-                    | parser::Kind::Initialization
-                    | parser::Kind::Finalization
-                        if options.transformations.enable_single_keyword_sections =>
-                    {
-                        transform_single_keyword_section(&source, code_section, &options)
-                    }
-                    parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration
-                        if options.transformations.enable_procedure_section =>
-                    {
-                        transform_procedure_section(code_section, &options, &source)
-                            .and_then(apply_text_transformation_if_enabled)
-                    }
-                    _ => None,
-                };
-                transformation
+            .filter_map(|code_section| match code_section.keyword.kind {
+                parser::Kind::Uses if options.transformations.enable_uses_section => {
+                    transform_uses_section(code_section, &options, &source)
+                }
+                parser::Kind::Unit | parser::Kind::Program
+                    if options.transformations.enable_unit_program_section =>
+                {
+                    transform_unit_program_section(code_section, &options, &source)
+                }
+                parser::Kind::Interface
+                | parser::Kind::Implementation
+                | parser::Kind::Initialization
+                | parser::Kind::Finalization
+                    if options.transformations.enable_single_keyword_sections =>
+                {
+                    transform_single_keyword_section(&source, code_section, &options)
+                }
+                parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration
+                    if options.transformations.enable_procedure_section =>
+                {
+                    transform_procedure_section(code_section, &options, &source)
+                        .and_then(apply_text_transformation_if_enabled)
+                }
+                _ => None,
             })
             .collect()
     });

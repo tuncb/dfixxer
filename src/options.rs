@@ -1,61 +1,48 @@
 use crate::dfixxer_error::DFixxerError;
 use glob::Pattern;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
 pub enum UsesSectionStyle {
     CommaAtTheBeginning,
+    #[default]
     CommaAtTheEnd,
 }
 
-impl Default for UsesSectionStyle {
-    fn default() -> Self {
-        UsesSectionStyle::CommaAtTheEnd
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
 pub enum SpaceOperation {
     NoChange,
     Before,
+    #[default]
     After,
     BeforeAndAfter,
 }
 
-impl Default for SpaceOperation {
-    fn default() -> Self {
-        SpaceOperation::After
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
 pub enum LineEnding {
+    #[default]
     Auto,
     Crlf,
     Lf,
 }
 
-impl Default for LineEnding {
-    fn default() -> Self {
-        LineEnding::Auto
-    }
-}
-
-impl LineEnding {
-    /// Convert the LineEnding enum to the actual line ending string
-    pub fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for LineEnding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ending = match self {
             LineEnding::Auto => {
-                #[cfg(windows)]
-                return "\r\n".to_string();
-                #[cfg(not(windows))]
-                return "\n".to_string();
+                if cfg!(windows) {
+                    "\r\n"
+                } else {
+                    "\n"
+                }
             }
-            LineEnding::Crlf => "\r\n".to_string(),
-            LineEnding::Lf => "\n".to_string(),
-        }
+            LineEnding::Crlf => "\r\n",
+            LineEnding::Lf => "\n",
+        };
+        f.write_str(ending)
     }
 }
 
@@ -605,10 +592,7 @@ impl Options {
 
     /// Load options from a TOML file, or return default if file doesn't exist
     pub fn load_or_default<P: AsRef<Path>>(path: P) -> Self {
-        match Self::load_from_file(path) {
-            Ok(options) => options,
-            Err(_) => Self::default(),
-        }
+        Self::load_from_file(path).unwrap_or_default()
     }
 
     /// Save options to a TOML file

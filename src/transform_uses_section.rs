@@ -7,12 +7,13 @@ use crate::transformer_utility::{
 use log::warn;
 
 // Formats the replacement text for a uses section given the modules and options.
-fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
+fn format_uses_replacement(modules: &[String], options: &Options) -> String {
     use crate::options::UsesSectionStyle;
+    let line_ending = options.line_ending.to_string();
     match options.uses_section.uses_section_style {
         UsesSectionStyle::CommaAtTheBeginning => {
             let mut lines = Vec::new();
-            if let Some(first) = modules.get(0) {
+            if let Some(first) = modules.first() {
                 // First unit: {indentation}{two spaces}{unit}
                 lines.push(format!("{}  {}", options.indentation, first));
                 // Following units: {indentation}, {unit}
@@ -21,30 +22,22 @@ fn format_uses_replacement(modules: &Vec<String>, options: &Options) -> String {
                 }
             }
             lines.push(format!("{};", options.indentation));
-            format!(
-                "uses{}{}",
-                options.line_ending.to_string(),
-                lines.join(&options.line_ending.to_string())
-            )
+            let joined_lines = lines.join(&line_ending);
+            format!("uses{}{}", line_ending, joined_lines)
         }
-        _ => {
-            let modules_text = modules.join(&format!(
-                ",{}{}",
-                options.line_ending.to_string(),
-                options.indentation
-            ));
+        UsesSectionStyle::CommaAtTheEnd => {
+            let separator = format!(",{}{}", line_ending, options.indentation);
+            let modules_text = modules.join(&separator);
             format!(
                 "uses{}{}{};",
-                options.line_ending.to_string(),
-                options.indentation,
-                modules_text
+                line_ending, options.indentation, modules_text
             )
         }
     }
 }
 
-fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
-    let mut modules = modules.clone();
+fn sort_modules(modules: &[String], options: &Options) -> Vec<String> {
+    let mut modules = modules.to_owned();
 
     // Apply module_names_to_update: e.g. "System:Classes" means replace "Classes" with "System.Classes"
     for mapping in &options.uses_section.module_names_to_update {
@@ -59,7 +52,7 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
 
     let override_namespaces = &options.uses_section.override_sorting_order;
     if override_namespaces.is_empty() {
-        modules.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        modules.sort_by_key(|name| name.to_lowercase());
         return modules;
     }
 
@@ -83,9 +76,9 @@ fn sort_modules(modules: &Vec<String>, options: &Options) -> Vec<String> {
             rest.push(m);
         }
     }
-    prioritized.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-    rest.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-    prioritized.into_iter().chain(rest.into_iter()).collect()
+    prioritized.sort_by_key(|name| name.to_lowercase());
+    rest.sort_by_key(|name| name.to_lowercase());
+    prioritized.into_iter().chain(rest).collect()
 }
 
 /// Transform a parser::CodeSection to TextReplacement (only for uses sections)

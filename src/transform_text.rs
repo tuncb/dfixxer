@@ -57,6 +57,18 @@ fn should_add_space_before(
 
 type CharIter<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
+struct OperatorContext<'a, 'b, F>
+where
+    F: Fn(char, &mut String, &mut String),
+{
+    chars: &'a mut CharIter<'b>,
+    prev_char: Option<char>,
+    current_line: &'a mut String,
+    result: &'a mut String,
+    push_char: &'a F,
+    do_trim: bool,
+}
+
 // Helper functions for operator handling
 fn active_buf<'a>(
     do_trim: bool,
@@ -84,8 +96,6 @@ fn ensure_one_space_before(buf: &mut String) {
         if last == '\n' || last == '\r' {
             return;
         }
-    }
-    if let Some(last) = buf.chars().last() {
         if last != ' ' && last != '\t' {
             buf.push(' ');
         }
@@ -105,10 +115,10 @@ fn consume_following_ws(chars: &mut CharIter<'_>) {
 fn maybe_add_space_after(op: &SpaceOperation, chars: &mut CharIter<'_>, buf: &mut String) {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
-            if let Some((_, nc)) = chars.peek().copied() {
-                if !nc.is_whitespace() {
-                    buf.push(' ');
-                }
+            if let Some((_, nc)) = chars.peek().copied()
+                && !nc.is_whitespace()
+            {
+                buf.push(' ');
             }
         }
         _ => {}
@@ -141,11 +151,12 @@ fn space_after_if_needed(
 ) {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
-            if let Some((_, nc)) = chars.peek().copied() {
-                // Do not add space if the next char is identical (e.g., ++, --, ==)
-                if !nc.is_whitespace() && nc != this_char {
-                    buf.push(' ');
-                }
+            // Do not add space if the next char is identical (e.g., ++, --, ==)
+            if let Some((_, nc)) = chars.peek().copied()
+                && !nc.is_whitespace()
+                && nc != this_char
+            {
+                buf.push(' ');
             }
         }
         _ => {}
@@ -153,32 +164,29 @@ fn space_after_if_needed(
 }
 
 /// Generic handler for two-character operators
-fn handle_two_char_operator(
+fn handle_two_char_operator<'a, 'b, F>(
     first_char: char,
     second_char: char,
-    chars: &mut CharIter<'_>,
     operation: &SpaceOperation,
-    prev_char: Option<char>,
-    current_line: &mut String,
-    result: &mut String,
-    push_char: &impl Fn(char, &mut String, &mut String),
-    do_trim: bool,
-    _operator_str: &str,
-) {
-    chars.next(); // consume the second character
+    ctx: &mut OperatorContext<'a, 'b, F>,
+) where
+    F: Fn(char, &mut String, &mut String),
+{
+    ctx.chars.next(); // consume the second character
+    let push_char = ctx.push_char;
     match operation {
         SpaceOperation::NoChange => {
-            if should_add_space_before(operation, prev_char, first_char) {
-                push_char(' ', current_line, result);
+            if should_add_space_before(operation, ctx.prev_char, first_char) {
+                push_char(' ', ctx.current_line, ctx.result);
             }
-            push_char(first_char, current_line, result);
-            push_char(second_char, current_line, result);
-            if should_add_space_after(operation, chars.peek().map(|(_, ch)| *ch), second_char) {
-                push_char(' ', current_line, result);
+            push_char(first_char, ctx.current_line, ctx.result);
+            push_char(second_char, ctx.current_line, ctx.result);
+            if should_add_space_after(operation, ctx.chars.peek().map(|(_, ch)| *ch), second_char) {
+                push_char(' ', ctx.current_line, ctx.result);
             }
         }
         _ => {
-            let buf = active_buf(do_trim, current_line, result);
+            let buf = active_buf(ctx.do_trim, ctx.current_line, ctx.result);
             remove_trailing_ws(buf);
             if matches!(
                 operation,
@@ -186,149 +194,59 @@ fn handle_two_char_operator(
             ) {
                 ensure_one_space_before(buf);
             }
-            push_char(first_char, current_line, result);
-            push_char(second_char, current_line, result);
-            consume_following_ws(chars);
-            let buf = active_buf(do_trim, current_line, result);
-            maybe_add_space_after(operation, chars, buf);
+            push_char(first_char, ctx.current_line, ctx.result);
+            push_char(second_char, ctx.current_line, ctx.result);
+            consume_following_ws(ctx.chars);
+            let buf = active_buf(ctx.do_trim, ctx.current_line, ctx.result);
+            maybe_add_space_after(operation, ctx.chars, buf);
         }
     }
 }
 
 /// Helper function to handle multi-character operators
-fn handle_operator(
+fn handle_operator<'a, 'b, F>(
     current_char: char,
-    chars: &mut CharIter<'_>,
     operation: &SpaceOperation,
-    prev_char: Option<char>,
-    current_line: &mut String,
-    result: &mut String,
-    push_char: &impl Fn(char, &mut String, &mut String),
-    do_trim: bool,
-) -> Option<String> {
+    ctx: &mut OperatorContext<'a, 'b, F>,
+) -> Option<String>
+where
+    F: Fn(char, &mut String, &mut String),
+{
     // Check for multi-character operators starting with current_char
-    let next_char = chars.peek().map(|(_, ch)| *ch);
+    let next_char = ctx.chars.peek().map(|(_, ch)| *ch);
 
     match (current_char, next_char) {
         // Two-character operators
         ('<', Some('=')) => {
-            handle_two_char_operator(
-                '<',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                "<=",
-            );
+            handle_two_char_operator('<', '=', operation, ctx);
             Some("<=".to_string())
         }
         ('<', Some('>')) => {
-            handle_two_char_operator(
-                '<',
-                '>',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                "<>",
-            );
+            handle_two_char_operator('<', '>', operation, ctx);
             Some("<>".to_string())
         }
         ('>', Some('=')) => {
-            handle_two_char_operator(
-                '>',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                ">=",
-            );
+            handle_two_char_operator('>', '=', operation, ctx);
             Some(">=".to_string())
         }
         (':', Some('=')) => {
-            handle_two_char_operator(
-                ':',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                ":=",
-            );
+            handle_two_char_operator(':', '=', operation, ctx);
             Some(":=".to_string())
         }
         ('+', Some('=')) => {
-            handle_two_char_operator(
-                '+',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                "+=",
-            );
+            handle_two_char_operator('+', '=', operation, ctx);
             Some("+=".to_string())
         }
         ('-', Some('=')) => {
-            handle_two_char_operator(
-                '-',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                "-=",
-            );
+            handle_two_char_operator('-', '=', operation, ctx);
             Some("-=".to_string())
         }
         ('*', Some('=')) => {
-            handle_two_char_operator(
-                '*',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                "*=",
-            );
+            handle_two_char_operator('*', '=', operation, ctx);
             Some("*=".to_string())
         }
         ('/', Some('=')) => {
-            handle_two_char_operator(
-                '/',
-                '=',
-                chars,
-                operation,
-                prev_char,
-                current_line,
-                result,
-                push_char,
-                do_trim,
-                "/=",
-            );
+            handle_two_char_operator('/', '=', operation, ctx);
             Some("/=".to_string())
         }
         _ => None, // Not a multi-character operator
@@ -383,27 +301,23 @@ fn should_skip_colon_spacing(
 }
 
 fn is_negative_literal_minus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| {
-        ctx.negative_literal_minus_positions.contains(&abs_pos)
-    })
+    context.is_some_and(|ctx| ctx.negative_literal_minus_positions.contains(&abs_pos))
 }
 
 fn is_unary_minus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| ctx.unary_minus_positions.contains(&abs_pos))
+    context.is_some_and(|ctx| ctx.unary_minus_positions.contains(&abs_pos))
 }
 
 fn is_unary_plus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| ctx.unary_plus_positions.contains(&abs_pos))
+    context.is_some_and(|ctx| ctx.unary_plus_positions.contains(&abs_pos))
 }
 
 fn is_positive_literal_plus(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| {
-        ctx.positive_literal_plus_positions.contains(&abs_pos)
-    })
+    context.is_some_and(|ctx| ctx.positive_literal_plus_positions.contains(&abs_pos))
 }
 
 fn is_exponent_sign(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| ctx.exponent_sign_positions.contains(&abs_pos))
+    context.is_some_and(|ctx| ctx.exponent_sign_positions.contains(&abs_pos))
 }
 
 fn is_exponent_sign_lexical(text: &str, idx: usize) -> bool {
@@ -449,7 +363,7 @@ fn is_exponent_sign_lexical(text: &str, idx: usize) -> bool {
 }
 
 fn is_generic_angle(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
-    context.map_or(false, |ctx| ctx.generic_angle_positions.contains(&abs_pos))
+    context.is_some_and(|ctx| ctx.generic_angle_positions.contains(&abs_pos))
 }
 
 /// Apply all text changes to a text string based on the given options
@@ -536,16 +450,17 @@ fn apply_text_changes(
                             push_char('/', &mut current_line, &mut result);
                             push_char(slash2, &mut current_line, &mut result);
                             state = State::LineComment;
-                        } else if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.assign_div,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        } else if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.assign_div, &mut ctx)
+                        } {
                             // '/=' handled by handle_operator
                         } else {
                             match options.fdiv {
@@ -682,27 +597,29 @@ fn apply_text_changes(
                             remove_trailing_ws(buf);
                             push_char('<', &mut current_line, &mut result);
                             consume_following_ws(&mut chars);
-                        } else if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.lte,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        } else if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.lte, &mut ctx)
+                        } {
                             // '<=' handled by handle_operator
-                        } else if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.neq,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        } else if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.neq, &mut ctx)
+                        } {
                             // '<>' handled by handle_operator
                         } else {
                             match options.lt {
@@ -785,16 +702,17 @@ fn apply_text_changes(
                             remove_trailing_ws(buf);
                             push_char('>', &mut current_line, &mut result);
                             consume_following_ws(&mut chars);
-                        } else if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.gte,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        } else if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.gte, &mut ctx)
+                        } {
                             // '>=' handled by handle_operator
                         } else {
                             match options.gt {
@@ -837,16 +755,17 @@ fn apply_text_changes(
                         }
                     }
                     '+' => {
-                        if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.assign_add,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.assign_add, &mut ctx)
+                        } {
                             // '+=' handled by handle_operator
                         } else if is_unary_plus(context, abs_pos)
                             || is_positive_literal_plus(context, abs_pos)
@@ -896,16 +815,17 @@ fn apply_text_changes(
                         }
                     }
                     '-' => {
-                        if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.assign_sub,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.assign_sub, &mut ctx)
+                        } {
                             // '-=' handled by handle_operator
                         } else if is_negative_literal_minus(context, abs_pos)
                             || is_unary_minus(context, abs_pos)
@@ -955,16 +875,17 @@ fn apply_text_changes(
                         }
                     }
                     '*' => {
-                        if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.assign_mul,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.assign_mul, &mut ctx)
+                        } {
                             // '*=' handled by handle_operator
                         } else {
                             match options.mul {
@@ -1007,16 +928,17 @@ fn apply_text_changes(
                         }
                     }
                     ':' => {
-                        if let Some(_handled) = handle_operator(
-                            ch,
-                            &mut chars,
-                            &options.assign,
-                            prev_char,
-                            &mut current_line,
-                            &mut result,
-                            &push_char,
-                            do_trim,
-                        ) {
+                        if let Some(_handled) = {
+                            let mut ctx = OperatorContext {
+                                chars: &mut chars,
+                                prev_char,
+                                current_line: &mut current_line,
+                                result: &mut result,
+                                push_char: &push_char,
+                                do_trim,
+                            };
+                            handle_operator(ch, &options.assign, &mut ctx)
+                        } {
                             // ':=' handled by handle_operator
                         } else {
                             // Single ':' operator
@@ -1066,12 +988,11 @@ fn apply_text_changes(
                                             op,
                                             SpaceOperation::After | SpaceOperation::BeforeAndAfter
                                         )
+                                        && let Some((_, nc)) = chars.peek().copied()
+                                        && !nc.is_whitespace()
+                                        && nc != ':'
                                     {
-                                        if let Some((_, nc)) = chars.peek().copied() {
-                                            if !nc.is_whitespace() && nc != ':' {
-                                                push_char(' ', &mut current_line, &mut result);
-                                            }
-                                        }
+                                        push_char(' ', &mut current_line, &mut result);
                                     }
                                 }
                             }
