@@ -18,15 +18,18 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary_name: dfixxer.exe
-            asset_name: dfixxer-windows-x86_64.exe
+            archive_name: dfixxer-windows-x86_64
+            archive_ext: zip
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary_name: dfixxer
-            asset_name: dfixxer-linux-x86_64
+            archive_name: dfixxer-linux-x86_64
+            archive_ext: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             binary_name: dfixxer
-            asset_name: dfixxer-macos-x86_64
+            archive_name: dfixxer-macos-x86_64
+            archive_ext: tar.gz
 
     steps:
       - name: Checkout code
@@ -58,22 +61,27 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Copy and rename binary (Windows)
+      - name: Create archive (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          copy target\${{ matrix.target }}\release\${{ matrix.binary_name }} ${{ matrix.asset_name }}
+          $archive = "${{ matrix.archive_name }}-${{ github.ref_name }}.${{ matrix.archive_ext }}"
+          Copy-Item "target\${{ matrix.target }}\release\${{ matrix.binary_name }}" "${{ matrix.binary_name }}"
+          Compress-Archive -Path "${{ matrix.binary_name }}" -DestinationPath $archive -Force
 
-      - name: Copy and rename binary (Unix)
+      - name: Create archive (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
-          chmod +x ${{ matrix.asset_name }}
+          archive="${{ matrix.archive_name }}-${{ github.ref_name }}.${{ matrix.archive_ext }}"
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.binary_name }}
+          chmod +x ${{ matrix.binary_name }}
+          tar -czf "$archive" "${{ matrix.binary_name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: ${{ matrix.asset_name }}
+          name: ${{ matrix.archive_name }}-${{ github.ref_name }}.${{ matrix.archive_ext }}
+          path: ${{ matrix.archive_name }}-${{ github.ref_name }}.${{ matrix.archive_ext }}
           retention-days: 1
 
   release:
@@ -105,6 +113,6 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            ./artifacts/dfixxer-windows-x86_64.exe/dfixxer-windows-x86_64.exe
-            ./artifacts/dfixxer-linux-x86_64/dfixxer-linux-x86_64
-            ./artifacts/dfixxer-macos-x86_64/dfixxer-macos-x86_64
+            ./artifacts/dfixxer-windows-x86_64-${{ steps.tag.outputs.tag_name }}.zip/dfixxer-windows-x86_64-${{ steps.tag.outputs.tag_name }}.zip
+            ./artifacts/dfixxer-linux-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz/dfixxer-linux-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz
+            ./artifacts/dfixxer-macos-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz/dfixxer-macos-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz
