@@ -56,7 +56,7 @@ Reformats and sorts the uses section(s) in the given Pascal file, modifying it i
 dfixxer check <filename> [--config <path>] [--multi]
 ```
 
-Shows what changes would be made to the uses section(s) without modifying the file.
+Shows a unified diff of what would change without modifying the file.
 
 **Arguments:**
 - `<filename>`: Path to the Pascal file to check (required). When `--multi` is used, this can be a glob pattern.
@@ -66,6 +66,7 @@ Shows what changes would be made to the uses section(s) without modifying the fi
 - `--multi`: Process multiple files using glob patterns
   - When enabled, `<filename>` is treated as a glob pattern (e.g., `"src/**/*.pas"`)
   - Shows the absolute path of each file being processed
+  - Prints a per-file unified diff for files that would change
   - Returns the total number of replacements across all files
 
 **Exit Code:**

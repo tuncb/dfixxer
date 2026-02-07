@@ -2,6 +2,7 @@ mod dfixxer_error;
 use dfixxer_error::DFixxerError;
 mod arguments;
 use arguments::{Command, expand_filename_pattern, parse_args};
+use diffy::create_patch;
 mod options;
 use options::{Options, find_custom_config_for_file, should_exclude_file};
 mod replacements;
@@ -12,7 +13,7 @@ mod transform_unit_program_section;
 mod transform_uses_section;
 mod transformer_utility;
 use replacements::{
-    TextReplacement, compute_source_sections, merge_replacements, print_replacements,
+    TextReplacement, apply_replacements_to_string, compute_source_sections, merge_replacements,
 };
 mod parser;
 use parser::{parse, parse_with_spacing_context};
@@ -284,8 +285,16 @@ fn run() -> Result<i32, DFixxerError> {
                 let (source, replacements) =
                     process_file(filename, arguments.config_path.as_deref(), &mut timing)?;
 
-                // Print replacements instead of applying them
-                print_replacements(&source, &replacements);
+                if !replacements.is_empty() {
+                    let updated_source = timing
+                        .time_operation("Applying replacements (in-memory)", || {
+                            apply_replacements_to_string(&source, &replacements)
+                        });
+                    let patch = timing.time_operation("Diff generation", || {
+                        create_patch(&source, &updated_source)
+                    });
+                    println!("{}", patch);
+                }
 
                 // Log the timing summary
                 timing.log_summary();

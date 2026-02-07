@@ -28,6 +28,12 @@ fn create_unique_temp_dir() -> std::path::PathBuf {
     temp_path
 }
 
+fn copy_file_to_temp_with_name(src: &Path, temp_dir: &Path, name: &str) -> std::path::PathBuf {
+    let dst = temp_dir.join(name);
+    fs::copy(src, &dst).expect("Failed to copy fixture file");
+    dst
+}
+
 fn assert_contents_match(actual_content: &str, expected_content: &str, file_name: &str) {
     if actual_content == expected_content {
         return;
@@ -101,6 +107,85 @@ fn test_check_correct_files() {
             .expect("Failed to run check command");
         assert!(status.success(), "Check command failed for {:?}", path);
     }
+}
+
+#[test]
+fn test_check_does_not_modify_file() {
+    let temp_dir = create_unique_temp_dir();
+    let src = Path::new("test-data\\update\\ex1.original.test.pas");
+    let temp_file = copy_file_to_temp_with_name(src, &temp_dir, "check_no_mutation_1.pas");
+
+    let before = fs::read_to_string(&temp_file).expect("Failed to read temp file before check");
+    let output = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
+        .arg("check")
+        .arg(&temp_file)
+        .output()
+        .expect("Failed to run check command");
+    assert!(
+        output.status.code().unwrap_or(1) > 0,
+        "Expected non-zero replacement count for check command"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("@@"),
+        "Expected unified diff output containing hunk markers"
+    );
+
+    let after = fs::read_to_string(&temp_file).expect("Failed to read temp file after check");
+    assert_eq!(
+        before, after,
+        "check command modified file contents unexpectedly"
+    );
+
+    fs::remove_dir_all(&temp_dir).expect("Failed to remove temp dir");
+}
+
+#[test]
+fn test_check_multi_does_not_modify_files_and_prints_per_file_output() {
+    let temp_dir = create_unique_temp_dir();
+    let src1 = Path::new("test-data\\update\\ex1.original.test.pas");
+    let src2 = Path::new("test-data\\update\\ex2.original.test.pas");
+    let temp_file1 = copy_file_to_temp_with_name(src1, &temp_dir, "check_multi_1.pas");
+    let temp_file2 = copy_file_to_temp_with_name(src2, &temp_dir, "check_multi_2.pas");
+
+    let before1 = fs::read_to_string(&temp_file1).expect("Failed to read first file before check");
+    let before2 = fs::read_to_string(&temp_file2).expect("Failed to read second file before check");
+
+    let pattern = format!("{}\\*.pas", temp_dir.display());
+    let output = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
+        .arg("check")
+        .arg(&pattern)
+        .arg("--multi")
+        .output()
+        .expect("Failed to run check --multi command");
+    assert!(
+        output.status.code().unwrap_or(1) > 0,
+        "Expected non-zero replacement count for check --multi command"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Processing file:").count() >= 2,
+        "Expected per-file output markers in --multi mode"
+    );
+    assert!(
+        stdout.contains("@@"),
+        "Expected unified diff output containing hunk markers in --multi mode"
+    );
+
+    let after1 = fs::read_to_string(&temp_file1).expect("Failed to read first file after check");
+    let after2 = fs::read_to_string(&temp_file2).expect("Failed to read second file after check");
+    assert_eq!(
+        before1, after1,
+        "check --multi modified first file contents unexpectedly"
+    );
+    assert_eq!(
+        before2, after2,
+        "check --multi modified second file contents unexpectedly"
+    );
+
+    fs::remove_dir_all(&temp_dir).expect("Failed to remove temp dir");
 }
 
 #[test]
