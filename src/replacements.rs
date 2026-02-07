@@ -13,64 +13,6 @@ pub struct SourceSection {
     pub end: usize,
 }
 
-impl TextReplacement {
-    /// Get the line and column numbers for a given position in the source text
-    fn get_line_column(source: &str, position: usize) -> (usize, usize) {
-        let mut line = 1;
-        let mut column = 1;
-
-        for (i, ch) in source.char_indices() {
-            if i >= position {
-                break;
-            }
-            if ch == '\n' {
-                line += 1;
-                column = 1;
-            } else {
-                column += 1;
-            }
-        }
-
-        (line, column)
-    }
-
-    /// Get the original text that would be replaced
-    fn get_original_text<'a>(&self, source: &'a str) -> &'a str {
-        &source[self.start..self.end]
-    }
-}
-
-pub fn print_replacement(original_source: &str, replacement: &TextReplacement, index: usize) {
-    let (start_line, start_col) =
-        TextReplacement::get_line_column(original_source, replacement.start);
-    let (end_line, end_col) = TextReplacement::get_line_column(original_source, replacement.end);
-    let original_text = replacement.get_original_text(original_source);
-
-    println!("Replacement {}:", index);
-    println!(
-        "  Location: {}:{}-{}:{}",
-        start_line, start_col, end_line, end_col
-    );
-    println!("  Original:");
-    for line in original_text.lines() {
-        println!("    - {}", line);
-    }
-    println!("  Replacement:");
-    for line in replacement.text.lines() {
-        println!("    + {}", line);
-    }
-    println!();
-}
-
-pub fn print_replacements(original_source: &str, replacements: &[TextReplacement]) {
-    if replacements.is_empty() {
-        return;
-    }
-    for (i, replacement) in replacements.iter().enumerate() {
-        print_replacement(original_source, replacement, i + 1);
-    }
-}
-
 /// Generate sections for the gaps between existing replacements (not including the replacements themselves)
 pub fn compute_source_sections(
     original_source: &str,
@@ -119,33 +61,40 @@ pub fn merge_replacements(
         return Ok(());
     }
 
-    // Sort replacements by start position
-    let mut sorted_replacements = replacements;
-    sorted_replacements.sort_by_key(|r| r.start);
+    let out = apply_replacements_to_string(original_source, &replacements);
+    std::fs::write(filename, out)?;
+    Ok(())
+}
 
-    // Build final text by processing original text and applying replacements
+pub fn apply_replacements_to_string(
+    original_source: &str,
+    replacements: &[TextReplacement],
+) -> String {
+    if replacements.is_empty() {
+        return original_source.to_string();
+    }
+
+    // Sort replacements by start position without mutating caller slice.
+    let mut order: Vec<_> = replacements.iter().collect();
+    order.sort_by_key(|r| r.start);
+
+    // Build final text by processing original text and applying replacements.
     let mut out = String::new();
-    let mut current_pos = 0;
+    let mut current_pos = 0usize;
 
-    for replacement in &sorted_replacements {
-        // Add any original text before this replacement
+    for replacement in order {
         if current_pos < replacement.start {
             out.push_str(&original_source[current_pos..replacement.start]);
         }
-
-        // Add replacement text
         out.push_str(&replacement.text);
-
         current_pos = replacement.end;
     }
 
-    // Add any remaining original text after the last replacement
     if current_pos < original_source.len() {
         out.push_str(&original_source[current_pos..]);
     }
 
-    std::fs::write(filename, out)?;
-    Ok(())
+    out
 }
 
 #[cfg(test)]
@@ -234,5 +183,25 @@ mod tests {
         }];
         let result = compute_source_sections(source, &replacements);
         assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_apply_replacements_to_string() {
+        let source = "The quick brown fox";
+        let replacements = vec![
+            TextReplacement {
+                start: 4,
+                end: 9,
+                text: "slow".to_string(),
+            },
+            TextReplacement {
+                start: 10,
+                end: 15,
+                text: "green".to_string(),
+            },
+        ];
+
+        let result = apply_replacements_to_string(source, &replacements);
+        assert_eq!(result, "The slow green fox");
     }
 }
