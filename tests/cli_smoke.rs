@@ -93,7 +93,7 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
 
 #[test]
 fn test_check_correct_files() {
-    let check_dir = Path::new("test-data\\check-correct");
+    let check_dir = Path::new("test-data").join("check-correct");
     for entry in WalkDir::new(check_dir)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -112,8 +112,10 @@ fn test_check_correct_files() {
 #[test]
 fn test_check_does_not_modify_file() {
     let temp_dir = create_unique_temp_dir();
-    let src = Path::new("test-data\\update\\ex1.original.test.pas");
-    let temp_file = copy_file_to_temp_with_name(src, &temp_dir, "check_no_mutation_1.pas");
+    let src = Path::new("test-data")
+        .join("update")
+        .join("ex1.original.test.pas");
+    let temp_file = copy_file_to_temp_with_name(&src, &temp_dir, "check_no_mutation_1.pas");
 
     let before = fs::read_to_string(&temp_file).expect("Failed to read temp file before check");
     let output = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
@@ -144,18 +146,23 @@ fn test_check_does_not_modify_file() {
 #[test]
 fn test_check_multi_does_not_modify_files_and_prints_per_file_output() {
     let temp_dir = create_unique_temp_dir();
-    let src1 = Path::new("test-data\\update\\ex1.original.test.pas");
-    let src2 = Path::new("test-data\\update\\ex2.original.test.pas");
-    let temp_file1 = copy_file_to_temp_with_name(src1, &temp_dir, "check_multi_1.pas");
-    let temp_file2 = copy_file_to_temp_with_name(src2, &temp_dir, "check_multi_2.pas");
+    let src1 = Path::new("test-data")
+        .join("update")
+        .join("ex1.original.test.pas");
+    let src2 = Path::new("test-data")
+        .join("update")
+        .join("ex2.original.test.pas");
+    let temp_file1 = copy_file_to_temp_with_name(&src1, &temp_dir, "check_multi_1.pas");
+    let temp_file2 = copy_file_to_temp_with_name(&src2, &temp_dir, "check_multi_2.pas");
 
     let before1 = fs::read_to_string(&temp_file1).expect("Failed to read first file before check");
     let before2 = fs::read_to_string(&temp_file2).expect("Failed to read second file before check");
 
-    let pattern = format!("{}\\*.pas", temp_dir.display());
+    let pattern_path = temp_dir.join("*.pas");
+    let pattern = pattern_path.to_string_lossy();
     let output = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
         .arg("check")
-        .arg(&pattern)
+        .arg(pattern.as_ref())
         .arg("--multi")
         .output()
         .expect("Failed to run check --multi command");
@@ -190,12 +197,12 @@ fn test_check_multi_does_not_modify_files_and_prints_per_file_output() {
 
 #[test]
 fn test_update_smoke() {
-    let test_data_dir = Path::new("test-data\\update");
+    let test_data_dir = Path::new("test-data").join("update");
     let temp_dir = create_unique_temp_dir();
 
     // Ensure configuration files are available in the temp directory by
     // copying all dfixxer.toml files while preserving relative paths.
-    for entry in WalkDir::new(test_data_dir)
+    for entry in WalkDir::new(&test_data_dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -203,7 +210,7 @@ fn test_update_smoke() {
         let path = entry.path();
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name == "dfixxer.toml" {
-                let rel_path = path.strip_prefix(test_data_dir).unwrap();
+                let rel_path = path.strip_prefix(&test_data_dir).unwrap();
                 let temp_file = temp_dir.join(rel_path);
                 if let Some(parent) = temp_file.parent() {
                     fs::create_dir_all(parent).unwrap();
@@ -213,7 +220,7 @@ fn test_update_smoke() {
         }
     }
 
-    for entry in WalkDir::new(test_data_dir)
+    for entry in WalkDir::new(&test_data_dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -222,7 +229,7 @@ fn test_update_smoke() {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name.ends_with(".original.test.pas") {
                 // To avoid name collisions, preserve relative path in temp dir
-                let rel_path = path.strip_prefix(test_data_dir).unwrap();
+                let rel_path = path.strip_prefix(&test_data_dir).unwrap();
                 let temp_file = temp_dir.join(rel_path);
                 if let Some(parent) = temp_file.parent() {
                     fs::create_dir_all(parent).unwrap();
