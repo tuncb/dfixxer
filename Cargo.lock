@@ -472,9 +472,8 @@ checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
 
 [[package]]
 name = "tree-sitter-pascal"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca037a9d7fd7441903e8946bfd223831b03d6bc979a50c8a5d4b9b6bdce91aaf"
+version = "0.10.2"
+source = "git+https://github.com/tuncb/tree-sitter-pascal-dfixxer-fork#50099972c79ff875073fa07513f48c8feee36ced"
 dependencies = [
  "cc",
  "tree-sitter-language",
