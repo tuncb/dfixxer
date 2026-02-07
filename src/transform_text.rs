@@ -79,6 +79,22 @@ fn active_buf<'a>(
 }
 
 fn remove_trailing_ws(buf: &mut String) {
+    // Preserve leading indentation when an operator starts a line.
+    let mut line_has_non_ws = false;
+    for ch in buf.chars().rev() {
+        if ch == '\n' || ch == '\r' {
+            break;
+        }
+        if ch != ' ' && ch != '\t' {
+            line_has_non_ws = true;
+            break;
+        }
+    }
+
+    if !line_has_non_ws {
+        return;
+    }
+
     while let Some(last) = buf.chars().last() {
         if last == ' ' || last == '\t' {
             buf.pop();
@@ -1983,6 +1999,17 @@ mod tests {
         assert_eq!(
             result.unwrap().text,
             "unit Test;\ninterface\nconst\n  A = 1E-12;\n  B = 1E+12;\nimplementation\nend."
+        );
+    }
+
+    #[test]
+    fn test_preserve_indentation_for_multiline_expression_operators() {
+        let text = "begin\n  X :=\n      A\n    -  B\n    +  C;\nend.";
+        let options = TextChangeOptions::default();
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(
+            result.unwrap(),
+            "begin\n  X :=\n      A\n    - B\n    + C;\nend."
         );
     }
 }
