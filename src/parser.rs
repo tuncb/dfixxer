@@ -80,6 +80,8 @@ pub struct SpacingContext {
     pub positive_literal_plus_positions: HashSet<usize>,
     pub exponent_sign_positions: HashSet<usize>,
     pub generic_angle_positions: HashSet<usize>,
+    pub expr_binary_lt_positions: HashSet<usize>,
+    pub expr_binary_gt_positions: HashSet<usize>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -201,6 +203,23 @@ fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContex
                         }
                         "kAdd" => {
                             context.unary_plus_positions.insert(child.start_byte());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        "exprBinary" => {
+            if let Some(operator) = node.child_by_field_name("operator") {
+                let start = operator.start_byte();
+                let end = operator.end_byte();
+                if start < end && end <= source.len() {
+                    match &source[start..end] {
+                        "<" | "<=" | "<>" => {
+                            context.expr_binary_lt_positions.insert(start);
+                        }
+                        ">" | ">=" => {
+                            context.expr_binary_gt_positions.insert(start);
                         }
                         _ => {}
                     }

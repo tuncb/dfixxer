@@ -382,6 +382,14 @@ fn is_generic_angle(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
     context.is_some_and(|ctx| ctx.generic_angle_positions.contains(&abs_pos))
 }
 
+fn is_expr_binary_lt_operator(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.is_some_and(|ctx| ctx.expr_binary_lt_positions.contains(&abs_pos))
+}
+
+fn is_expr_binary_gt_operator(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
+    context.is_some_and(|ctx| ctx.expr_binary_gt_positions.contains(&abs_pos))
+}
+
 fn should_add_space_after_generic_closing_angle(next_char: Option<char>) -> bool {
     matches!(
         next_char,
@@ -615,11 +623,23 @@ fn apply_text_changes(
                         }
                     },
                     '<' => {
+                        let apply_lt_spacing =
+                            context.is_none() || is_expr_binary_lt_operator(context, abs_pos);
                         if is_generic_angle(context, abs_pos) {
                             let buf = active_buf(do_trim, &mut current_line, &mut result);
                             remove_trailing_ws(buf);
                             push_char('<', &mut current_line, &mut result);
                             consume_following_ws(&mut chars);
+                        } else if !apply_lt_spacing {
+                            // Outside generic/template and non-binary contexts we preserve '<'
+                            // literally to avoid unsafe rewrites on parser recovery drift.
+                            push_char('<', &mut current_line, &mut result);
+                            if let Some((_, nc)) = chars.peek().copied()
+                                && (nc == '=' || nc == '>')
+                            {
+                                let (_, second_char) = chars.next().unwrap();
+                                push_char(second_char, &mut current_line, &mut result);
+                            }
                         } else if let Some(_handled) = {
                             let mut ctx = OperatorContext {
                                 chars: &mut chars,
@@ -720,6 +740,8 @@ fn apply_text_changes(
                         }
                     },
                     '>' => {
+                        let apply_gt_spacing =
+                            context.is_none() || is_expr_binary_gt_operator(context, abs_pos);
                         if is_generic_angle(context, abs_pos) {
                             let buf = active_buf(do_trim, &mut current_line, &mut result);
                             remove_trailing_ws(buf);
@@ -729,6 +751,16 @@ fn apply_text_changes(
                                 chars.peek().map(|(_, ch)| *ch),
                             ) {
                                 push_char(' ', &mut current_line, &mut result);
+                            }
+                        } else if !apply_gt_spacing {
+                            // Outside generic/template and non-binary contexts we preserve '>'
+                            // literally to avoid unsafe rewrites on parser recovery drift.
+                            push_char('>', &mut current_line, &mut result);
+                            if let Some((_, nc)) = chars.peek().copied()
+                                && nc == '='
+                            {
+                                let (_, second_char) = chars.next().unwrap();
+                                push_char(second_char, &mut current_line, &mut result);
                             }
                         } else if let Some(_handled) = {
                             let mut ctx = OperatorContext {
@@ -2030,6 +2062,82 @@ mod tests {
             result.unwrap().text,
             "unit Test;\ninterface\nconst\n  A = 1E-12;\n  B = 1E+12;\nimplementation\nend."
         );
+    }
+
+    #[test]
+    fn test_lt_gt_spacing_requires_expr_binary_positions_with_context() {
+        let text = "TArray<Integer>; if A<10 then x:=1; if B>5 then y:=2;";
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            eq: SpaceOperation::NoChange,
+            add: SpaceOperation::NoChange,
+            sub: SpaceOperation::NoChange,
+            mul: SpaceOperation::NoChange,
+            fdiv: SpaceOperation::NoChange,
+            assign: SpaceOperation::NoChange,
+            assign_add: SpaceOperation::NoChange,
+            assign_sub: SpaceOperation::NoChange,
+            assign_mul: SpaceOperation::NoChange,
+            assign_div: SpaceOperation::NoChange,
+            colon: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let mut context = crate::parser::SpacingContext::default();
+        context
+            .expr_binary_lt_positions
+            .insert(text.find("A<10").unwrap() + 1);
+        context
+            .expr_binary_gt_positions
+            .insert(text.find("B>5").unwrap() + 1);
+
+        let result =
+            apply_text_transformation_with_context(0, text.len(), text, &options, Some(&context));
+        assert_eq!(
+            result.unwrap().text,
+            "TArray<Integer>; if A < 10 then x:=1; if B > 5 then y:=2;"
+        );
+    }
+
+    #[test]
+    fn test_recovery_drift_preserves_generic_angles_after_boundary() {
+        let source = r#"unit Repro;
+interface
+implementation
+
+function LoadData(const APhases: TArray<Integer>): TArray<Integer>;
+begin
+  const LData = TList<Integer>.Create();
+  for var LPhase in APhases do
+  begin
+    LData.Add(LPhase);
+  end;
+  Result := LData.ToArray();
+end;
+
+function GenericAfterBoundary: TArray<Integer>;
+begin
+  Result := nil;
+end;
+
+end."#;
+
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let transformed = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        )
+        .map(|r| r.text)
+        .unwrap_or_else(|| source.to_string());
+
+        assert!(transformed.contains("function GenericAfterBoundary: TArray<Integer>;"));
+        assert!(!transformed.contains("function GenericAfterBoundary: TArray < Integer >;"));
     }
 
     #[test]

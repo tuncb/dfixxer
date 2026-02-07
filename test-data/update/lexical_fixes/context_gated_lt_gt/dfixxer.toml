@@ -1,0 +1,31 @@
+indentation = "  "
+line_ending = "Lf"
+
+[transformations]
+enable_uses_section = false
+enable_unit_program_section = false
+enable_single_keyword_sections = false
+enable_procedure_section = false
+enable_text_transformations = true
+
+[text_changes]
+comma = "NoChange"
+semi_colon = "NoChange"
+lt = "BeforeAndAfter"
+eq = "NoChange"
+neq = "BeforeAndAfter"
+gt = "BeforeAndAfter"
+lte = "BeforeAndAfter"
+gte = "BeforeAndAfter"
+add = "NoChange"
+sub = "NoChange"
+mul = "NoChange"
+fdiv = "NoChange"
+assign = "NoChange"
+assign_add = "NoChange"
+assign_sub = "NoChange"
+assign_mul = "NoChange"
+assign_div = "NoChange"
+colon = "NoChange"
+colon_numeric_exception = true
+trim_trailing_whitespace = false
