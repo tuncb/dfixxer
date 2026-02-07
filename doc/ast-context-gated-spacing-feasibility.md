@@ -28,7 +28,7 @@ Using only `exprBinary` for all operators will regress behavior.
 
 Mostly yes, but not absolutely.
 
-1. It will significantly reduce false positives by switching default behavior to "do not modify unless context is known and trusted."  
+1. It will significantly reduce false positives by switching default behavior to "do not modify unless context is known and trusted."
 2. It will likely solve the reported wrong generic spacing on the repro file.
 3. It cannot guarantee perfect safety because tree-sitter may still produce incorrect but syntactically plausible AST nodes during recovery.
 
@@ -49,6 +49,42 @@ Instead of `exprBinary`-only, use operator-specific context gates:
    - keep mostly lexical/global handling
 6. If no trusted context matches:
    - preserve original spacing
+
+## Node-Type Rule Matrix (Concrete)
+
+Use explicit per-node rules so the same token can behave differently by syntactic role.
+
+1. Template/generic nodes: `genericTpl`, `typerefTpl`, `exprTpl`
+   - Tokens: `<`, `>`
+   - Rule: remove surrounding spaces (`TArray < Integer >` -> `TArray<Integer>`)
+2. Binary-expression node: `exprBinary`
+   - Tokens: `<`, `>`, `<=`, `>=`, `<>`, `+`, `-`, `*`, `/`, `=`
+   - Rule: apply configured binary spacing options
+3. Unary-expression node: `exprUnary`
+   - Tokens: unary `+`, unary `-`
+   - Rule: compact unary spacing (`- 1` -> `-1`, `+ Foo` -> `+Foo`)
+4. Assignment node: `assignment`
+   - Tokens: `:=`, `+=`, `-=`, `*=`, `/=`
+   - Rule: apply assignment spacing options
+5. Declaration contexts: `defaultValue`, `declType` (and similar declaration rules)
+   - Token: `=`
+   - Rule: declaration-aware handling (or preserve unless explicitly configured)
+6. Non-expression punctuation
+   - Tokens: `,`, `;`, `:`
+   - Rule: keep lexical/global handling unless there is a strong reason to context-gate
+
+## Precedence and Fallback
+
+When multiple rules could apply, evaluate in this order:
+
+1. template/generic rule
+2. assignment rule
+3. unary rule
+4. binary rule
+5. declaration-specific rule
+6. preserve original spacing (no trusted context)
+
+This precedence prevents expression-style spacing from leaking into template definitions and keeps ambiguous cases safe.
 
 ## Practical First Step
 

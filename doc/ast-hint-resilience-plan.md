@@ -65,7 +65,39 @@ Purpose:
 - limit drift propagation
 - avoid misclassification after local parser recovery failures
 
-### 6. Refactor `transform_text` into a 3-Phase Pipeline
+### 6. Add Node-Type-Gated Spacing Rules
+Apply different spacing policies based on AST node type, not only token kind.
+
+Suggested rule matrix:
+- `genericTpl`, `typerefTpl`, `exprTpl`:
+  - tokens: `<`, `>`
+  - rule: remove surrounding spaces (template/generic compact form)
+- `exprBinary`:
+  - tokens: comparison and arithmetic operators
+  - rule: apply configured operator spacing (for example `lt`, `gt`, `lte`, `gte`, `add`, `sub`)
+- `exprUnary`:
+  - tokens: unary `+`, unary `-`
+  - rule: compact unary form (for example `-1`, `+Foo`)
+- `assignment`:
+  - tokens: `:=`, `+=`, `-=`, `*=`, `/=`
+  - rule: apply assignment spacing options
+- declaration-only contexts (`defaultValue`, `declType`, etc.):
+  - tokens: `=`
+  - rule: use declaration-aware policy (or preserve unless explicitly configured)
+
+Precedence order (important):
+1. template/generic rule
+2. assignment rule
+3. unary rule
+4. binary rule
+5. preserve original spacing (fallback when context is missing or low confidence)
+
+Purpose:
+- support different spacing behavior per syntactic role
+- reduce ambiguity where the same character appears in multiple contexts
+- avoid applying expression rules inside template definitions
+
+### 7. Refactor `transform_text` into a 3-Phase Pipeline
 Current implementation is a large monolithic loop.
 
 Target structure:
@@ -77,7 +109,7 @@ Purpose:
 - isolate classification from mutation
 - make fallback logic explicit, testable, and maintainable
 
-### 7. Add Regression Coverage for Recovery-Drift Inputs
+### 8. Add Regression Coverage for Recovery-Drift Inputs
 Add end-to-end fixtures and focused unit tests for files where AST hints degrade.
 Include the repro case:
 - `debug-pascal-code/treesitter-error-repro_combined_recovery_drift_generics.pas`
@@ -90,10 +122,11 @@ Focus test assertions on:
 
 ## Suggested Rollout Order
 1. Parse-quality metadata + error ranges
-2. Conservative policy in low-confidence zones
-3. Lexical fallback for generics (`<`, `>`)
-4. Lexical fallback for unary `+/-`
-5. Full pipeline refactor (tokenize/classify/rewrite)
+2. Node-type-gated rules for high-risk ambiguous operators (`<`, `>`)
+3. Conservative policy in low-confidence zones
+4. Lexical fallback for generics (`<`, `>`)
+5. Lexical fallback for unary `+/-`
+6. Full pipeline refactor (tokenize/classify/rewrite)
 
 ## Expected Outcome
 These changes reduce formatter dependence on perfect tree-sitter recovery and shift behavior toward safe, confidence-aware transformations. The result should be fewer spacing regressions on real-world Pascal files with parser drift.
