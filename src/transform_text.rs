@@ -382,6 +382,13 @@ fn is_generic_angle(context: Option<&SpacingContext>, abs_pos: usize) -> bool {
     context.is_some_and(|ctx| ctx.generic_angle_positions.contains(&abs_pos))
 }
 
+fn should_add_space_after_generic_closing_angle(next_char: Option<char>) -> bool {
+    matches!(
+        next_char,
+        Some(ch) if ch == '_' || ch == '&' || ch.is_ascii_alphabetic()
+    )
+}
+
 /// Apply all text changes to a text string based on the given options
 fn apply_text_changes(
     text: &str,
@@ -718,6 +725,11 @@ fn apply_text_changes(
                             remove_trailing_ws(buf);
                             push_char('>', &mut current_line, &mut result);
                             consume_following_ws(&mut chars);
+                            if should_add_space_after_generic_closing_angle(
+                                chars.peek().map(|(_, ch)| *ch),
+                            ) {
+                                push_char(' ', &mut current_line, &mut result);
+                            }
                         } else if let Some(_handled) = {
                             let mut ctx = OperatorContext {
                                 chars: &mut chars,
@@ -1963,6 +1975,24 @@ mod tests {
         assert_eq!(
             result.unwrap().text,
             "unit Test;\ninterface\ntype\n  TMap = TDictionary<String, TList<Integer>>;\n  TNested = TOuter<TInner<Integer>>;\nimplementation\nend."
+        );
+    }
+
+    #[test]
+    fn test_generic_property_read_directive_spacing() {
+        let source = "unit Test;\ninterface\ntype\n  TMy = class\n  private\n    FGeom: TObject;\n  public\n    property Geom: TObjectList < TObject > read FGeom;\n    property Geom2: TObjectList<TObject>read FGeom;\n  end;\nimplementation\nend.";
+        let options = TextChangeOptions::default();
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let result = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        );
+        assert_eq!(
+            result.unwrap().text,
+            "unit Test;\ninterface\ntype\n  TMy = class\n  private\n    FGeom: TObject;\n  public\n    property Geom: TObjectList<TObject> read FGeom;\n    property Geom2: TObjectList<TObject> read FGeom;\n  end;\nimplementation\nend."
         );
     }
 
