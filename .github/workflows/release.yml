@@ -104,6 +104,17 @@ jobs:
         id: tag
         run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Determine prerelease flag
+        id: prerelease
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.tag_name }}"
+          if [[ "$tag" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create or Update Release
         id: release
         uses: softprops/action-gh-release@v1
@@ -111,7 +122,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag_name }}
           name: Release ${{ steps.tag.outputs.tag_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
           files: |
             ./artifacts/dfixxer-windows-x86_64-${{ steps.tag.outputs.tag_name }}.zip/dfixxer-windows-x86_64-${{ steps.tag.outputs.tag_name }}.zip
             ./artifacts/dfixxer-linux-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz/dfixxer-linux-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz
