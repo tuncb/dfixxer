@@ -96,9 +96,9 @@ impl Default for TextChangeOptions {
             assign_div: SpaceOperation::BeforeAndAfter, // '/='
             colon: SpaceOperation::After,               // ':'
             colon_numeric_exception: true, // Skip spacing for ':' when numbers before and after
-            space_inside_brace_comments: false,
-            space_inside_paren_star_comments: false,
-            space_after_line_comment_slashes: false,
+            space_inside_brace_comments: true,
+            space_inside_paren_star_comments: true,
+            space_after_line_comment_slashes: true,
             trim_trailing_whitespace: true,
         }
     }
@@ -651,9 +651,9 @@ mod tests {
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
-        assert!(!options.text_changes.space_inside_brace_comments);
-        assert!(!options.text_changes.space_inside_paren_star_comments);
-        assert!(!options.text_changes.space_after_line_comment_slashes);
+        assert!(options.text_changes.space_inside_brace_comments);
+        assert!(options.text_changes.space_inside_paren_star_comments);
+        assert!(options.text_changes.space_after_line_comment_slashes);
     }
 
     #[test]
@@ -677,9 +677,9 @@ mod tests {
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
-        assert!(!options.text_changes.space_inside_brace_comments);
-        assert!(!options.text_changes.space_inside_paren_star_comments);
-        assert!(!options.text_changes.space_after_line_comment_slashes);
+        assert!(options.text_changes.space_inside_brace_comments);
+        assert!(options.text_changes.space_inside_paren_star_comments);
+        assert!(options.text_changes.space_after_line_comment_slashes);
     }
 
     #[test]

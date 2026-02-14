@@ -1708,6 +1708,7 @@ mod tests {
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
+            space_inside_brace_comments: false,
             trim_trailing_whitespace: false,
             ..Default::default()
         };
@@ -1721,6 +1722,7 @@ mod tests {
         let options = TextChangeOptions {
             comma: SpaceOperation::After,
             semi_colon: SpaceOperation::After,
+            space_inside_paren_star_comments: false,
             trim_trailing_whitespace: false,
             ..Default::default()
         };
@@ -1741,6 +1743,14 @@ mod tests {
         let result = apply_text_changes(text, &options, 0, None);
         // Only second line is transformed.
         assert_eq!(result.unwrap(), "// a,b;c\nx, y; z");
+    }
+
+    #[test]
+    fn test_default_comment_spacing_options_apply() {
+        let options = TextChangeOptions::default();
+        let text = "{NoSpace}\n(*NoSpace*)\n//NoSpace\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "{ NoSpace }\n(* NoSpace *)\n// NoSpace\n");
     }
 
     #[test]

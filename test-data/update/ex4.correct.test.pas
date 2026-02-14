@@ -12,12 +12,12 @@ uses
   y,
   z;
 
-{This uses should be parsed and correctly sorted.}
+{ This uses should be parsed and correctly sorted. }
 uses
   a,
   b,
   c;
-(*This uses should be parsed and correctly sorted.*)
+(* This uses should be parsed and correctly sorted. *)
 uses
   a,
   b,
