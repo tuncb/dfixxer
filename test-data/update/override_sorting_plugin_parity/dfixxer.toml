@@ -1,0 +1,14 @@
+indentation = "  "
+line_ending = "Lf"
+
+[uses_section]
+uses_section_style = "CommaAtTheEnd"
+override_sorting_order = ["ProjectDB.DelphiFacade", "System"]
+module_names_to_update = []
+
+[transformations]
+enable_uses_section = true
+enable_unit_program_section = false
+enable_single_keyword_sections = false
+enable_procedure_section = false
+enable_text_transformations = false

@@ -4,7 +4,10 @@ use crate::replacements::TextReplacement;
 use crate::transformer_utility::{
     adjust_replacement_for_line_position, create_text_replacement_if_different,
 };
+use icu_collator::CollatorBorrowed;
+use icu_collator::options::{CollatorOptions, Strength};
 use log::warn;
+use std::cmp::Ordering;
 
 // Formats the replacement text for a uses section given the modules and options.
 fn format_uses_replacement(modules: &[String], options: &Options) -> String {
@@ -36,6 +39,24 @@ fn format_uses_replacement(modules: &[String], options: &Options) -> String {
     }
 }
 
+fn build_base_collator() -> Option<CollatorBorrowed<'static>> {
+    let mut options = CollatorOptions::default();
+    options.strength = Some(Strength::Primary);
+    CollatorBorrowed::try_new(Default::default(), options).ok()
+}
+
+fn fallback_module_compare(
+    a: &str,
+    b: &str,
+    collator: Option<&CollatorBorrowed<'static>>,
+) -> Ordering {
+    if let Some(collator) = collator {
+        return collator.compare(a, b);
+    }
+
+    a.to_lowercase().cmp(&b.to_lowercase())
+}
+
 fn sort_modules(modules: &[String], options: &Options) -> Vec<String> {
     let mut modules = modules.to_owned();
 
@@ -50,35 +71,38 @@ fn sort_modules(modules: &[String], options: &Options) -> Vec<String> {
         }
     }
 
-    let override_namespaces = &options.uses_section.override_sorting_order;
-    if override_namespaces.is_empty() {
-        modules.sort_by_key(|name| name.to_lowercase());
-        return modules;
-    }
+    // Match pascal-uses-formatter behavior:
+    // - override prefixes are applied in configured order
+    // - prefix matching is case-insensitive and does not require a dot boundary
+    // - fallback ordering uses locale-style base collation
+    let override_namespaces: Vec<String> = options
+        .uses_section
+        .override_sorting_order
+        .iter()
+        .map(|ns| ns.to_lowercase())
+        .collect();
+    let collator = build_base_collator();
 
-    // Partition modules into those that start with any override namespace and have a '.' after the namespace, and the rest
-    let mut prioritized = Vec::new();
-    let mut rest = Vec::new();
-    for m in modules {
-        let mut is_prioritized = false;
-        for ns in override_namespaces {
-            if m.starts_with(ns) {
-                let ns_len = ns.len();
-                if m.len() > ns_len && m.chars().nth(ns_len) == Some('.') {
-                    is_prioritized = true;
-                    break;
-                }
+    modules.sort_by(|a, b| {
+        let normalized_a = a.trim().to_lowercase();
+        let normalized_b = b.trim().to_lowercase();
+
+        for ns in &override_namespaces {
+            let a_matches = normalized_a.starts_with(ns);
+            let b_matches = normalized_b.starts_with(ns);
+
+            if a_matches && !b_matches {
+                return Ordering::Less;
+            }
+            if !a_matches && b_matches {
+                return Ordering::Greater;
             }
         }
-        if is_prioritized {
-            prioritized.push(m);
-        } else {
-            rest.push(m);
-        }
-    }
-    prioritized.sort_by_key(|name| name.to_lowercase());
-    rest.sort_by_key(|name| name.to_lowercase());
-    prioritized.into_iter().chain(rest).collect()
+
+        fallback_module_compare(a, b, collator.as_ref())
+    });
+
+    modules
 }
 
 /// Transform a parser::CodeSection to TextReplacement (only for uses sections)
@@ -243,7 +267,7 @@ mod tests {
         );
         options.uses_section.override_sorting_order = vec!["System".to_string(), "Abc".to_string()];
         let sorted = sort_modules(&modules, &options);
-        let expected = vec!["Abc.B", "System.A", "A", "AbcB", "B", "SystemA"];
+        let expected = vec!["System.A", "SystemA", "Abc.B", "AbcB", "A", "B"];
         let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
         assert_eq!(sorted, expected);
     }
@@ -264,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_modules_with_dot_but_not_namespace() {
+    fn test_sort_modules_without_dot_boundary_for_override_namespace() {
         let modules = vec![
             "X.Y".to_string(),
             "A.B".to_string(),
@@ -277,7 +301,52 @@ mod tests {
         );
         options.uses_section.override_sorting_order = vec!["System".to_string()];
         let sorted = sort_modules(&modules, &options);
-        let expected = vec!["A.B", "SystemA.B", "X.Y"];
+        let expected = vec!["SystemA.B", "A.B", "X.Y"];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn test_sort_modules_override_match_is_case_insensitive() {
+        let modules = vec![
+            "misc.A".to_string(),
+            "SYSTEM.Z".to_string(),
+            "system.A".to_string(),
+            "B".to_string(),
+        ];
+        let mut options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
+        options.uses_section.override_sorting_order = vec!["system".to_string()];
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec!["system.A", "SYSTEM.Z", "B", "misc.A"];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn test_sort_modules_uses_locale_base_collation_for_fallback() {
+        let modules = vec![
+            "ProjectDB.DelphiFacade.FMOPhase".to_string(),
+            "ProjectDB.DelphiFacade_Abstract".to_string(),
+            "ProjectDB.DelphiFacade.FMOStep".to_string(),
+            "ProjectDB.DelphiFacade_Abstract".to_string(),
+        ];
+        let mut options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
+        options.uses_section.override_sorting_order = vec![];
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec![
+            "ProjectDB.DelphiFacade_Abstract",
+            "ProjectDB.DelphiFacade_Abstract",
+            "ProjectDB.DelphiFacade.FMOPhase",
+            "ProjectDB.DelphiFacade.FMOStep",
+        ];
         let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
         assert_eq!(sorted, expected);
     }

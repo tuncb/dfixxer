@@ -263,7 +263,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 
   ##### `override_sorting_order` (array of strings)
   - **Purpose**: Namespace prefixes to prioritize during sorting
-  - **Behavior**: Units starting with these prefixes (followed by a dot) are sorted first among themselves, then remaining units are sorted alphabetically
+  - **Behavior**: Prefixes are matched case-insensitively using plain `starts_with` semantics (no required dot boundary). Prefixes are applied in listed order; fallback ordering uses locale-aware base collation.
   - **Default**: `[]` (empty array)
   - **Example**: `["System", "Vcl", "FireDAC"]`
 
