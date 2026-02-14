@@ -150,6 +150,34 @@ fn consume_following_ws(chars: &mut CharIter<'_>) {
     }
 }
 
+fn closes_brace_comment_on_current_line(chars: &CharIter<'_>) -> bool {
+    let probe = chars.clone();
+    for (_, c) in probe {
+        if c == '\n' || c == '\r' {
+            return false;
+        }
+        if c == '}' {
+            return true;
+        }
+    }
+    false
+}
+
+fn closes_paren_star_comment_on_current_line(chars: &CharIter<'_>) -> bool {
+    let probe = chars.clone();
+    let mut prev_was_star = false;
+    for (_, c) in probe {
+        if c == '\n' || c == '\r' {
+            return false;
+        }
+        if prev_was_star && c == ')' {
+            return true;
+        }
+        prev_was_star = c == '*';
+    }
+    false
+}
+
 fn maybe_add_space_after(op: &SpaceOperation, chars: &mut CharIter<'_>, buf: &mut String) {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
@@ -442,8 +470,8 @@ fn apply_text_changes(
     let mut state = State::Code;
     let mut chars = text.char_indices().peekable();
     let mut prev_char: Option<char> = None;
-    let mut brace_comment_is_directive = false;
-    let mut paren_star_comment_is_directive = false;
+    let mut brace_comment_apply_single_line_spacing = false;
+    let mut paren_star_comment_apply_single_line_spacing = false;
 
     // For trimming we accumulate current line raw output, then on newline flush trimmed.
     let do_trim = options.trim_trailing_whitespace;
@@ -484,7 +512,7 @@ fn apply_text_changes(
                     '{' => {
                         // Brace comment
                         push_char(ch, &mut current_line, &mut result);
-                        brace_comment_is_directive = false;
+                        brace_comment_apply_single_line_spacing = false;
                         if options.space_inside_brace_comments {
                             // Detect compiler directives like {$IFDEF ...} and leave them untouched.
                             let mut probe = chars.clone();
@@ -496,9 +524,13 @@ fn apply_text_changes(
                                 }
                             }
                             let next_non_hws = probe.peek().map(|(_, c)| *c);
-                            brace_comment_is_directive = matches!(next_non_hws, Some('$'));
+                            let is_directive = matches!(next_non_hws, Some('$'));
+                            let closes_on_current_line =
+                                closes_brace_comment_on_current_line(&chars);
+                            brace_comment_apply_single_line_spacing =
+                                !is_directive && closes_on_current_line;
 
-                            if !brace_comment_is_directive
+                            if brace_comment_apply_single_line_spacing
                                 && matches!(
                                     next_non_hws,
                                     Some(c) if c != '\n' && c != '\r' && c != '}'
@@ -517,7 +549,7 @@ fn apply_text_changes(
                             let (_, star) = chars.next().unwrap();
                             push_char('(', &mut current_line, &mut result);
                             push_char(star, &mut current_line, &mut result);
-                            paren_star_comment_is_directive = false;
+                            paren_star_comment_apply_single_line_spacing = false;
                             if options.space_inside_paren_star_comments {
                                 // Detect compiler directives like (*$IFDEF ...*) and leave them untouched.
                                 let mut probe = chars.clone();
@@ -529,9 +561,13 @@ fn apply_text_changes(
                                     }
                                 }
                                 let next_non_hws = probe.peek().map(|(_, c)| *c);
-                                paren_star_comment_is_directive = matches!(next_non_hws, Some('$'));
+                                let is_directive = matches!(next_non_hws, Some('$'));
+                                let closes_on_current_line =
+                                    closes_paren_star_comment_on_current_line(&chars);
+                                paren_star_comment_apply_single_line_spacing =
+                                    !is_directive && closes_on_current_line;
 
-                                if !paren_star_comment_is_directive
+                                if paren_star_comment_apply_single_line_spacing
                                     && matches!(
                                         next_non_hws,
                                         Some(c) if c != '\n' && c != '\r' && c != '*'
@@ -1190,7 +1226,7 @@ fn apply_text_changes(
                     // Handle newlines in brace comments consistently
                     flush_line_ending(ch, &mut current_line, &mut result);
                 } else if ch == '}' {
-                    if options.space_inside_brace_comments && !brace_comment_is_directive {
+                    if brace_comment_apply_single_line_spacing {
                         let buf = active_buf(do_trim, &mut current_line, &mut result);
                         if current_line_has_non_ws(buf) {
                             remove_trailing_horizontal_ws(buf);
@@ -1198,7 +1234,7 @@ fn apply_text_changes(
                         }
                     }
                     push_char(ch, &mut current_line, &mut result);
-                    brace_comment_is_directive = false;
+                    brace_comment_apply_single_line_spacing = false;
                     state = State::Code;
                 } else {
                     push_char(ch, &mut current_line, &mut result);
@@ -1211,9 +1247,7 @@ fn apply_text_changes(
                 } else if ch == '*' {
                     // Look ahead for ) to end comment
                     if let Some((_, ')')) = chars.peek().copied() {
-                        if options.space_inside_paren_star_comments
-                            && !paren_star_comment_is_directive
-                        {
+                        if paren_star_comment_apply_single_line_spacing {
                             let buf = active_buf(do_trim, &mut current_line, &mut result);
                             if current_line_has_non_ws(buf) {
                                 remove_trailing_horizontal_ws(buf);
@@ -1223,7 +1257,7 @@ fn apply_text_changes(
                         push_char(ch, &mut current_line, &mut result);
                         let (_, closing_paren) = chars.next().unwrap();
                         push_char(closing_paren, &mut current_line, &mut result);
-                        paren_star_comment_is_directive = false;
+                        paren_star_comment_apply_single_line_spacing = false;
                         state = State::Code;
                     } else {
                         push_char(ch, &mut current_line, &mut result);
@@ -1866,10 +1900,7 @@ mod tests {
         };
         let text = "{First line\nSecond line}\n{\nSecond line\n}\n";
         let result = apply_text_changes(text, &options, 0, None);
-        assert_eq!(
-            result.unwrap(),
-            "{ First line\nSecond line }\n{\nSecond line\n}\n"
-        );
+        assert!(result.is_none());
     }
 
     #[test]
@@ -1914,10 +1945,7 @@ mod tests {
         };
         let text = "(*First line\nSecond line*)\n(*\nSecond line\n*)\n";
         let result = apply_text_changes(text, &options, 0, None);
-        assert_eq!(
-            result.unwrap(),
-            "(* First line\nSecond line *)\n(*\nSecond line\n*)\n"
-        );
+        assert!(result.is_none());
     }
 
     #[test]
