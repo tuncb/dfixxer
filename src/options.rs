@@ -70,7 +70,7 @@ pub struct TextChangeOptions {
     pub colon_numeric_exception: bool, // Skip spacing for ':' when numbers before and after
     pub space_inside_brace_comments: bool, // Add one space after '{' and before '}' for non-directive brace comments
     pub space_inside_paren_star_comments: bool, // Add one space after '(*' and before '*)' for non-directive paren-star comments
-    pub space_after_line_comment_slashes: bool, // Add one space after leading slash run in // comments
+    pub space_after_line_comment_slashes: bool, // Ensure at least one space after // slash run, preserving existing spacing
     pub trim_trailing_whitespace: bool,
 }
 

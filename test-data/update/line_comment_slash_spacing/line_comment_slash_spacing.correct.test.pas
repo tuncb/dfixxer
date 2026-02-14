@@ -2,6 +2,7 @@ program LineCommentSlashSpacing;
 begin
   // NoSpace
   ///////// NoSpaceAfterMany
-  ///// Already   Text
+  /////   Already   Text
+  //       KeepAligned
   //////////
 end.
