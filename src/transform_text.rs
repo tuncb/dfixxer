@@ -443,6 +443,7 @@ fn apply_text_changes(
     let mut chars = text.char_indices().peekable();
     let mut prev_char: Option<char> = None;
     let mut brace_comment_is_directive = false;
+    let mut paren_star_comment_is_directive = false;
 
     // For trimming we accumulate current line raw output, then on newline flush trimmed.
     let do_trim = options.trim_trailing_whitespace;
@@ -516,6 +517,30 @@ fn apply_text_changes(
                             let (_, star) = chars.next().unwrap();
                             push_char('(', &mut current_line, &mut result);
                             push_char(star, &mut current_line, &mut result);
+                            paren_star_comment_is_directive = false;
+                            if options.space_inside_paren_star_comments {
+                                // Detect compiler directives like (*$IFDEF ...*) and leave them untouched.
+                                let mut probe = chars.clone();
+                                while let Some((_, c)) = probe.peek().copied() {
+                                    if c == ' ' || c == '\t' {
+                                        probe.next();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                let next_non_hws = probe.peek().map(|(_, c)| *c);
+                                paren_star_comment_is_directive = matches!(next_non_hws, Some('$'));
+
+                                if !paren_star_comment_is_directive
+                                    && matches!(
+                                        next_non_hws,
+                                        Some(c) if c != '\n' && c != '\r' && c != '*'
+                                    )
+                                {
+                                    consume_following_ws(&mut chars);
+                                    push_char(' ', &mut current_line, &mut result);
+                                }
+                            }
                             state = State::ParenStarComment;
                         } else {
                             push_char('(', &mut current_line, &mut result);
@@ -1166,16 +1191,28 @@ fn apply_text_changes(
                 if ch == '\n' || ch == '\r' {
                     // Handle newlines in paren-star comments consistently
                     flush_line_ending(ch, &mut current_line, &mut result);
+                } else if ch == '*' {
+                    // Look ahead for ) to end comment
+                    if let Some((_, ')')) = chars.peek().copied() {
+                        if options.space_inside_paren_star_comments
+                            && !paren_star_comment_is_directive
+                        {
+                            let buf = active_buf(do_trim, &mut current_line, &mut result);
+                            if current_line_has_non_ws(buf) {
+                                remove_trailing_horizontal_ws(buf);
+                                buf.push(' ');
+                            }
+                        }
+                        push_char(ch, &mut current_line, &mut result);
+                        let (_, closing_paren) = chars.next().unwrap();
+                        push_char(closing_paren, &mut current_line, &mut result);
+                        paren_star_comment_is_directive = false;
+                        state = State::Code;
+                    } else {
+                        push_char(ch, &mut current_line, &mut result);
+                    }
                 } else {
                     push_char(ch, &mut current_line, &mut result);
-                    if ch == '*' {
-                        // Look ahead for ) to end comment
-                        if let Some((_, ')')) = chars.peek().copied() {
-                            let (_, closing_paren) = chars.next().unwrap();
-                            push_char(closing_paren, &mut current_line, &mut result);
-                            state = State::Code;
-                        }
-                    }
                 }
             }
         }
@@ -1752,6 +1789,54 @@ mod tests {
         assert_eq!(
             result.unwrap(),
             "{$IFDEF DEBUG}\n{  $IFDEF DEBUG  }\n{ NormalComment }\n"
+        );
+    }
+
+    #[test]
+    fn test_space_inside_paren_star_comments_single_line() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_inside_paren_star_comments: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "(*NoSpace*) (*  TooManySpaces   *) (**)";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "(* NoSpace *) (* TooManySpaces *) (* *)");
+    }
+
+    #[test]
+    fn test_space_inside_paren_star_comments_multiline_boundaries() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_inside_paren_star_comments: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "(*First line\nSecond line*)\n(*\nSecond line\n*)\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(
+            result.unwrap(),
+            "(* First line\nSecond line *)\n(*\nSecond line\n*)\n"
+        );
+    }
+
+    #[test]
+    fn test_space_inside_paren_star_comments_skips_directives() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_inside_paren_star_comments: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "(*$IFDEF DEBUG*)\n(*  $IFDEF DEBUG  *)\n(*NormalComment*)\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(
+            result.unwrap(),
+            "(*$IFDEF DEBUG*)\n(*  $IFDEF DEBUG  *)\n(* NormalComment *)\n"
         );
     }
 

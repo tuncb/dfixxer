@@ -51,24 +51,25 @@ impl fmt::Display for LineEnding {
 pub struct TextChangeOptions {
     pub comma: SpaceOperation,
     pub semi_colon: SpaceOperation,
-    pub lt: SpaceOperation,                // '<'
-    pub eq: SpaceOperation,                // '='
-    pub neq: SpaceOperation,               // '<>'
-    pub gt: SpaceOperation,                // '>'
-    pub lte: SpaceOperation,               // '<='
-    pub gte: SpaceOperation,               // '>='
-    pub add: SpaceOperation,               // '+'
-    pub sub: SpaceOperation,               // '-'
-    pub mul: SpaceOperation,               // '*'
-    pub fdiv: SpaceOperation,              // '/'
-    pub assign: SpaceOperation,            // ':='
-    pub assign_add: SpaceOperation,        // '+='
-    pub assign_sub: SpaceOperation,        // '-='
-    pub assign_mul: SpaceOperation,        // '*='
-    pub assign_div: SpaceOperation,        // '/='
-    pub colon: SpaceOperation,             // ':'
-    pub colon_numeric_exception: bool,     // Skip spacing for ':' when numbers before and after
+    pub lt: SpaceOperation,                     // '<'
+    pub eq: SpaceOperation,                     // '='
+    pub neq: SpaceOperation,                    // '<>'
+    pub gt: SpaceOperation,                     // '>'
+    pub lte: SpaceOperation,                    // '<='
+    pub gte: SpaceOperation,                    // '>='
+    pub add: SpaceOperation,                    // '+'
+    pub sub: SpaceOperation,                    // '-'
+    pub mul: SpaceOperation,                    // '*'
+    pub fdiv: SpaceOperation,                   // '/'
+    pub assign: SpaceOperation,                 // ':='
+    pub assign_add: SpaceOperation,             // '+='
+    pub assign_sub: SpaceOperation,             // '-='
+    pub assign_mul: SpaceOperation,             // '*='
+    pub assign_div: SpaceOperation,             // '/='
+    pub colon: SpaceOperation,                  // ':'
+    pub colon_numeric_exception: bool, // Skip spacing for ':' when numbers before and after
     pub space_inside_brace_comments: bool, // Add one space after '{' and before '}' for non-directive brace comments
+    pub space_inside_paren_star_comments: bool, // Add one space after '(*' and before '*)' for non-directive paren-star comments
     pub trim_trailing_whitespace: bool,
 }
 
@@ -95,6 +96,7 @@ impl Default for TextChangeOptions {
             colon: SpaceOperation::After,               // ':'
             colon_numeric_exception: true, // Skip spacing for ':' when numbers before and after
             space_inside_brace_comments: false,
+            space_inside_paren_star_comments: false,
             trim_trailing_whitespace: true,
         }
     }
@@ -648,6 +650,7 @@ mod tests {
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(!options.text_changes.space_inside_brace_comments);
+        assert!(!options.text_changes.space_inside_paren_star_comments);
     }
 
     #[test]
@@ -672,6 +675,7 @@ mod tests {
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(!options.text_changes.space_inside_brace_comments);
+        assert!(!options.text_changes.space_inside_paren_star_comments);
     }
 
     #[test]
