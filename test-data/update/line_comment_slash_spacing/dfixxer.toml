@@ -1,0 +1,11 @@
+line_ending = "Lf"
+
+[transformations]
+enable_uses_section = false
+enable_unit_program_section = false
+enable_single_keyword_sections = false
+enable_procedure_section = false
+enable_text_transformations = true
+
+[text_changes]
+space_after_line_comment_slashes = true

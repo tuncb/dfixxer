@@ -552,6 +552,21 @@ fn apply_text_changes(
                             let (_, slash2) = chars.next().unwrap();
                             push_char('/', &mut current_line, &mut result);
                             push_char(slash2, &mut current_line, &mut result);
+                            if options.space_after_line_comment_slashes {
+                                // Consume additional leading slashes (///...),
+                                // then normalize to a single space before content.
+                                while let Some((_, '/')) = chars.peek().copied() {
+                                    let (_, slashn) = chars.next().unwrap();
+                                    push_char(slashn, &mut current_line, &mut result);
+                                }
+                                consume_following_ws(&mut chars);
+                                if let Some((_, nc)) = chars.peek().copied()
+                                    && nc != '\n'
+                                    && nc != '\r'
+                                {
+                                    push_char(' ', &mut current_line, &mut result);
+                                }
+                            }
                             state = State::LineComment;
                         } else if let Some(_handled) = {
                             let mut ctx = OperatorContext {
@@ -1726,6 +1741,62 @@ mod tests {
         let result = apply_text_changes(text, &options, 0, None);
         // Only second line is transformed.
         assert_eq!(result.unwrap(), "// a,b;c\nx, y; z");
+    }
+
+    #[test]
+    fn test_space_after_line_comment_slashes_basic() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_after_line_comment_slashes: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "//abc\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "// abc\n");
+    }
+
+    #[test]
+    fn test_space_after_line_comment_slashes_many_slashes() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_after_line_comment_slashes: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "//////////abc\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "////////// abc\n");
+    }
+
+    #[test]
+    fn test_space_after_line_comment_slashes_collapses_existing_whitespace() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_after_line_comment_slashes: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "/////\t\t  abc\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "///// abc\n");
+    }
+
+    #[test]
+    fn test_space_after_line_comment_slashes_no_text_keeps_comment_line() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_after_line_comment_slashes: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "////////\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert!(result.is_none());
     }
 
     #[test]

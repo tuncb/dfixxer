@@ -295,6 +295,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
     - `colon_numeric_exception` - Skip colon spacing for numeric ranges like `1:10` (default: `true`)
     - `space_inside_brace_comments` - For non-directive `{...}` comments, enforce one space after `{` and before `}` (default: `false`)
     - `space_inside_paren_star_comments` - For non-directive `(*...*)` comments, enforce one space after `(*` and before `*)` (default: `false`)
+    - `space_after_line_comment_slashes` - For `//...` comments, enforce one space after the leading slash run (default: `false`)
   - Comparison operators:
     - `lt` - Less than `<` (default: `"BeforeAndAfter"`)
     - `eq` - Equals `=` (default: `"BeforeAndAfter"`)
@@ -390,6 +391,7 @@ assign_mul = "BeforeAndAfter"
 assign_div = "BeforeAndAfter"
 space_inside_brace_comments = false
 space_inside_paren_star_comments = false
+space_after_line_comment_slashes = false
 trim_trailing_whitespace = true
 ```
 
