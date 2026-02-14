@@ -40,7 +40,7 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
     }
 
     // Show full content comparison like assert_eq!
-    let mut diff_info = format!("assertion failed: `(left == right)`\n");
+    let mut diff_info = "assertion failed: `(left == right)`\n".to_string();
     diff_info.push_str(&format!("Mismatch for file: {}\n", file_name));
     diff_info.push_str(&format!("left:\n{:?}\n", actual_content));
     diff_info.push_str(&format!("right:\n{:?}\n", expected_content));
@@ -102,7 +102,7 @@ fn test_check_correct_files() {
         let path = entry.path();
         let status = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
             .arg("check")
-            .arg(&path)
+            .arg(path)
             .status()
             .expect("Failed to run check command");
         assert!(status.success(), "Check command failed for {:?}", path);
@@ -208,15 +208,15 @@ fn test_update_smoke() {
         .filter(|e| e.file_type().is_file())
     {
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name == "dfixxer.toml" {
-                let rel_path = path.strip_prefix(&test_data_dir).unwrap();
-                let temp_file = temp_dir.join(rel_path);
-                if let Some(parent) = temp_file.parent() {
-                    fs::create_dir_all(parent).unwrap();
-                }
-                fs::copy(&path, &temp_file).expect("Failed to copy config to temp");
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name == "dfixxer.toml"
+        {
+            let rel_path = path.strip_prefix(&test_data_dir).unwrap();
+            let temp_file = temp_dir.join(rel_path);
+            if let Some(parent) = temp_file.parent() {
+                fs::create_dir_all(parent).unwrap();
             }
+            fs::copy(path, &temp_file).expect("Failed to copy config to temp");
         }
     }
 
@@ -226,38 +226,38 @@ fn test_update_smoke() {
         .filter(|e| e.file_type().is_file())
     {
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.ends_with(".original.test.pas") {
-                // To avoid name collisions, preserve relative path in temp dir
-                let rel_path = path.strip_prefix(&test_data_dir).unwrap();
-                let temp_file = temp_dir.join(rel_path);
-                if let Some(parent) = temp_file.parent() {
-                    fs::create_dir_all(parent).unwrap();
-                }
-                fs::copy(&path, &temp_file).expect("Failed to copy file to temp");
-
-                // Run the update command
-                let status = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
-                    .arg("update")
-                    .arg(&temp_file)
-                    .status()
-                    .expect("Failed to run update command");
-                assert!(
-                    status.success(),
-                    "Update command failed for {:?}",
-                    temp_file
-                );
-
-                // Compare with correct file
-                let correct_name = name.replace("original", "correct");
-                let correct_file = path.with_file_name(correct_name);
-                let updated_content =
-                    fs::read_to_string(&temp_file).expect("Failed to read updated file");
-                let correct_content =
-                    fs::read_to_string(&correct_file).expect("Failed to read correct file");
-
-                assert_contents_match(&updated_content, &correct_content, name);
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with(".original.test.pas")
+        {
+            // To avoid name collisions, preserve relative path in temp dir
+            let rel_path = path.strip_prefix(&test_data_dir).unwrap();
+            let temp_file = temp_dir.join(rel_path);
+            if let Some(parent) = temp_file.parent() {
+                fs::create_dir_all(parent).unwrap();
             }
+            fs::copy(path, &temp_file).expect("Failed to copy file to temp");
+
+            // Run the update command
+            let status = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
+                .arg("update")
+                .arg(&temp_file)
+                .status()
+                .expect("Failed to run update command");
+            assert!(
+                status.success(),
+                "Update command failed for {:?}",
+                temp_file
+            );
+
+            // Compare with correct file
+            let correct_name = name.replace("original", "correct");
+            let correct_file = path.with_file_name(correct_name);
+            let updated_content =
+                fs::read_to_string(&temp_file).expect("Failed to read updated file");
+            let correct_content =
+                fs::read_to_string(&correct_file).expect("Failed to read correct file");
+
+            assert_contents_match(&updated_content, &correct_content, name);
         }
     }
 

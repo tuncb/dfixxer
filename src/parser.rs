@@ -518,7 +518,7 @@ end."#;
         assert_eq!(code_section.keyword.kind, Kind::Program);
 
         // Check siblings - should include module name and semicolon
-        assert!(code_section.siblings.len() >= 1);
+        assert!(!code_section.siblings.is_empty());
 
         // Find module and semicolon in siblings
         let has_module = code_section.siblings.iter().any(|s| s.kind == Kind::Module);

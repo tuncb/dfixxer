@@ -293,6 +293,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
     - `semi_colon` - Semicolon spacing (default: `"After"`)
     - `colon` - Colon spacing (default: `"After"`)
     - `colon_numeric_exception` - Skip colon spacing for numeric ranges like `1:10` (default: `true`)
+    - `space_inside_brace_comments` - For non-directive `{...}` comments, enforce one space after `{` and before `}` (default: `false`)
   - Comparison operators:
     - `lt` - Less than `<` (default: `"BeforeAndAfter"`)
     - `eq` - Equals `=` (default: `"BeforeAndAfter"`)
@@ -386,6 +387,7 @@ assign_add = "BeforeAndAfter"
 assign_sub = "BeforeAndAfter"
 assign_mul = "BeforeAndAfter"
 assign_div = "BeforeAndAfter"
+space_inside_brace_comments = false
 trim_trailing_whitespace = true
 ```
 

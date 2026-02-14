@@ -104,6 +104,28 @@ fn remove_trailing_ws(buf: &mut String) {
     }
 }
 
+fn current_line_has_non_ws(buf: &str) -> bool {
+    for ch in buf.chars().rev() {
+        if ch == '\n' || ch == '\r' {
+            break;
+        }
+        if ch != ' ' && ch != '\t' {
+            return true;
+        }
+    }
+    false
+}
+
+fn remove_trailing_horizontal_ws(buf: &mut String) {
+    while let Some(last) = buf.chars().last() {
+        if last == ' ' || last == '\t' {
+            buf.pop();
+        } else {
+            break;
+        }
+    }
+}
+
 fn ensure_one_space_before(buf: &mut String) {
     if buf.is_empty() {
         return;
@@ -420,6 +442,7 @@ fn apply_text_changes(
     let mut state = State::Code;
     let mut chars = text.char_indices().peekable();
     let mut prev_char: Option<char> = None;
+    let mut brace_comment_is_directive = false;
 
     // For trimming we accumulate current line raw output, then on newline flush trimmed.
     let do_trim = options.trim_trailing_whitespace;
@@ -460,6 +483,30 @@ fn apply_text_changes(
                     '{' => {
                         // Brace comment
                         push_char(ch, &mut current_line, &mut result);
+                        brace_comment_is_directive = false;
+                        if options.space_inside_brace_comments {
+                            // Detect compiler directives like {$IFDEF ...} and leave them untouched.
+                            let mut probe = chars.clone();
+                            while let Some((_, c)) = probe.peek().copied() {
+                                if c == ' ' || c == '\t' {
+                                    probe.next();
+                                } else {
+                                    break;
+                                }
+                            }
+                            let next_non_hws = probe.peek().map(|(_, c)| *c);
+                            brace_comment_is_directive = matches!(next_non_hws, Some('$'));
+
+                            if !brace_comment_is_directive
+                                && matches!(
+                                    next_non_hws,
+                                    Some(c) if c != '\n' && c != '\r' && c != '}'
+                                )
+                            {
+                                consume_following_ws(&mut chars);
+                                push_char(' ', &mut current_line, &mut result);
+                            }
+                        }
                         state = State::BraceComment;
                     }
                     '(' => {
@@ -1100,11 +1147,19 @@ fn apply_text_changes(
                 if ch == '\n' || ch == '\r' {
                     // Handle newlines in brace comments consistently
                     flush_line_ending(ch, &mut current_line, &mut result);
+                } else if ch == '}' {
+                    if options.space_inside_brace_comments && !brace_comment_is_directive {
+                        let buf = active_buf(do_trim, &mut current_line, &mut result);
+                        if current_line_has_non_ws(buf) {
+                            remove_trailing_horizontal_ws(buf);
+                            buf.push(' ');
+                        }
+                    }
+                    push_char(ch, &mut current_line, &mut result);
+                    brace_comment_is_directive = false;
+                    state = State::Code;
                 } else {
                     push_char(ch, &mut current_line, &mut result);
-                    if ch == '}' {
-                        state = State::Code;
-                    }
                 }
             }
             State::ParenStarComment => {
@@ -1445,7 +1500,7 @@ mod tests {
             trim_trailing_whitespace: true,
             ..Default::default()
         };
-        let text = &source[..];
+        let text = source;
         let result = apply_text_transformation(0, source.len(), text, &options);
         assert_eq!(result.unwrap().text, "Hello, World\nFoo; Bar".to_string());
     }
@@ -1459,7 +1514,7 @@ mod tests {
             trim_trailing_whitespace: false,
             ..Default::default()
         };
-        let text = &source[..];
+        let text = source;
         let result = apply_text_transformation(0, 12, text, &options);
         assert!(result.is_none()); // No changes needed
     }
@@ -1649,6 +1704,54 @@ mod tests {
         assert_eq!(
             result.unwrap(),
             "val := 'a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
+        );
+    }
+
+    #[test]
+    fn test_space_inside_brace_comments_single_line() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_inside_brace_comments: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "{NoSpace} {  TooManySpaces   } {}";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "{ NoSpace } { TooManySpaces } { }");
+    }
+
+    #[test]
+    fn test_space_inside_brace_comments_multiline_boundaries() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_inside_brace_comments: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "{First line\nSecond line}\n{\nSecond line\n}\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(
+            result.unwrap(),
+            "{ First line\nSecond line }\n{\nSecond line\n}\n"
+        );
+    }
+
+    #[test]
+    fn test_space_inside_brace_comments_skips_directives() {
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            space_inside_brace_comments: true,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let text = "{$IFDEF DEBUG}\n{  $IFDEF DEBUG  }\n{NormalComment}\n";
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(
+            result.unwrap(),
+            "{$IFDEF DEBUG}\n{  $IFDEF DEBUG  }\n{ NormalComment }\n"
         );
     }
 

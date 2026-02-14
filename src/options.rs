@@ -51,23 +51,24 @@ impl fmt::Display for LineEnding {
 pub struct TextChangeOptions {
     pub comma: SpaceOperation,
     pub semi_colon: SpaceOperation,
-    pub lt: SpaceOperation,            // '<'
-    pub eq: SpaceOperation,            // '='
-    pub neq: SpaceOperation,           // '<>'
-    pub gt: SpaceOperation,            // '>'
-    pub lte: SpaceOperation,           // '<='
-    pub gte: SpaceOperation,           // '>='
-    pub add: SpaceOperation,           // '+'
-    pub sub: SpaceOperation,           // '-'
-    pub mul: SpaceOperation,           // '*'
-    pub fdiv: SpaceOperation,          // '/'
-    pub assign: SpaceOperation,        // ':='
-    pub assign_add: SpaceOperation,    // '+='
-    pub assign_sub: SpaceOperation,    // '-='
-    pub assign_mul: SpaceOperation,    // '*='
-    pub assign_div: SpaceOperation,    // '/='
-    pub colon: SpaceOperation,         // ':'
-    pub colon_numeric_exception: bool, // Skip spacing for ':' when numbers before and after
+    pub lt: SpaceOperation,                // '<'
+    pub eq: SpaceOperation,                // '='
+    pub neq: SpaceOperation,               // '<>'
+    pub gt: SpaceOperation,                // '>'
+    pub lte: SpaceOperation,               // '<='
+    pub gte: SpaceOperation,               // '>='
+    pub add: SpaceOperation,               // '+'
+    pub sub: SpaceOperation,               // '-'
+    pub mul: SpaceOperation,               // '*'
+    pub fdiv: SpaceOperation,              // '/'
+    pub assign: SpaceOperation,            // ':='
+    pub assign_add: SpaceOperation,        // '+='
+    pub assign_sub: SpaceOperation,        // '-='
+    pub assign_mul: SpaceOperation,        // '*='
+    pub assign_div: SpaceOperation,        // '/='
+    pub colon: SpaceOperation,             // ':'
+    pub colon_numeric_exception: bool,     // Skip spacing for ':' when numbers before and after
+    pub space_inside_brace_comments: bool, // Add one space after '{' and before '}' for non-directive brace comments
     pub trim_trailing_whitespace: bool,
 }
 
@@ -93,6 +94,7 @@ impl Default for TextChangeOptions {
             assign_div: SpaceOperation::BeforeAndAfter, // '/='
             colon: SpaceOperation::After,               // ':'
             colon_numeric_exception: true, // Skip spacing for ':' when numbers before and after
+            space_inside_brace_comments: false,
             trim_trailing_whitespace: true,
         }
     }
@@ -645,6 +647,7 @@ mod tests {
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
+        assert!(!options.text_changes.space_inside_brace_comments);
     }
 
     #[test]
@@ -668,6 +671,7 @@ mod tests {
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
+        assert!(!options.text_changes.space_inside_brace_comments);
     }
 
     #[test]
@@ -912,19 +916,26 @@ enable_uses_section = false
 
     #[test]
     fn test_line_ending_direct_usage() {
-        let mut options = Options::default();
+        let options_lf = Options {
+            line_ending: LineEnding::Lf,
+            ..Default::default()
+        };
+        assert_eq!(options_lf.line_ending.to_string(), "\n");
 
-        options.line_ending = LineEnding::Lf;
-        assert_eq!(options.line_ending.to_string(), "\n");
+        let options_crlf = Options {
+            line_ending: LineEnding::Crlf,
+            ..Default::default()
+        };
+        assert_eq!(options_crlf.line_ending.to_string(), "\r\n");
 
-        options.line_ending = LineEnding::Crlf;
-        assert_eq!(options.line_ending.to_string(), "\r\n");
-
-        options.line_ending = LineEnding::Auto;
+        let options_auto = Options {
+            line_ending: LineEnding::Auto,
+            ..Default::default()
+        };
         #[cfg(windows)]
-        assert_eq!(options.line_ending.to_string(), "\r\n");
+        assert_eq!(options_auto.line_ending.to_string(), "\r\n");
         #[cfg(not(windows))]
-        assert_eq!(options.line_ending.to_string(), "\n");
+        assert_eq!(options_auto.line_ending.to_string(), "\n");
     }
 
     #[test]
