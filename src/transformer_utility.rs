@@ -31,13 +31,29 @@ pub fn adjust_replacement_for_line_position(
     // Check what's between line start and section start
     let prefix = &source[line_start..section_start_byte];
 
-    let replacement_start = if prefix
+    // Preserve a UTF-8 BOM at the beginning of the file. It should not be treated
+    // as inline content when deciding whether to prepend a newline.
+    let mut logical_prefix = prefix;
+    let mut protected_prefix_len = 0usize;
+    if line_start == 0
+        && let Some(stripped_prefix) = logical_prefix.strip_prefix('\u{feff}')
+    {
+        logical_prefix = stripped_prefix;
+        protected_prefix_len = '\u{feff}'.len_utf8();
+    }
+
+    let replacement_start = if logical_prefix
         .chars()
         .all(|c| c.is_whitespace() && c != '\n' && c != '\r')
     {
-        // Only whitespace characters before section - remove them by extending replacement start
-        line_start
-    } else if !prefix.is_empty() {
+        // Only whitespace characters before section - remove them by extending replacement start.
+        // If the prefix is only a BOM, keep the section start unchanged to preserve BOM bytes.
+        if logical_prefix.is_empty() {
+            section_start_byte
+        } else {
+            line_start + protected_prefix_len
+        }
+    } else if !logical_prefix.is_empty() {
         // Non-whitespace characters before section - add a newline before the section
         replacement_text = format!("{}{}", options.line_ending, replacement_text);
         section_start_byte
@@ -147,6 +163,48 @@ mod tests {
 
         assert_eq!(start, 0); // Should start at beginning
         assert_eq!(text, "keyword formatted;"); // Text unchanged
+    }
+
+    #[test]
+    fn test_adjust_replacement_with_bom_only_prefix() {
+        let source = "\u{feff}keyword something;";
+        let options = make_options(LineEnding::Lf);
+        let replacement_text = "keyword formatted;".to_string();
+        let section_start = '\u{feff}'.len_utf8();
+
+        let (start, text) =
+            adjust_replacement_for_line_position(source, section_start, replacement_text, &options);
+
+        assert_eq!(start, section_start); // Keep BOM intact
+        assert_eq!(text, "keyword formatted;"); // No prepended newline
+    }
+
+    #[test]
+    fn test_adjust_replacement_with_bom_and_whitespace_prefix() {
+        let source = "\u{feff}  keyword something;";
+        let options = make_options(LineEnding::Lf);
+        let replacement_text = "keyword formatted;".to_string();
+        let section_start = '\u{feff}'.len_utf8() + 2;
+
+        let (start, text) =
+            adjust_replacement_for_line_position(source, section_start, replacement_text, &options);
+
+        assert_eq!(start, '\u{feff}'.len_utf8()); // Trim spaces, preserve BOM
+        assert_eq!(text, "keyword formatted;"); // No prepended newline
+    }
+
+    #[test]
+    fn test_adjust_replacement_with_bom_and_non_whitespace_prefix() {
+        let source = "\u{feff}abckeyword something;";
+        let options = make_options(LineEnding::Lf);
+        let replacement_text = "keyword formatted;".to_string();
+        let section_start = '\u{feff}'.len_utf8() + 3;
+
+        let (start, text) =
+            adjust_replacement_for_line_position(source, section_start, replacement_text, &options);
+
+        assert_eq!(start, section_start); // Non-whitespace prefix remains inline
+        assert_eq!(text, "\nkeyword formatted;"); // Newline still prepended
     }
 
     #[test]

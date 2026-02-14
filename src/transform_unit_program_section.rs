@@ -143,6 +143,23 @@ mod tests {
     }
 
     #[test]
+    fn test_transform_unit_section_with_bom_no_extra_leading_newline() {
+        let source = "\u{feff}unit MyUnit;";
+        let bom_len = '\u{feff}'.len_utf8();
+        let code_section = CodeSection {
+            keyword: make_parsed_node(Kind::Unit, bom_len, bom_len + 4),
+            siblings: vec![
+                make_parsed_node(Kind::Module, bom_len + 5, bom_len + 11),
+                make_parsed_node(Kind::Semicolon, bom_len + 11, bom_len + 12),
+            ],
+        };
+        let options = make_options(LineEnding::Lf);
+
+        let result = transform_unit_program_section(&code_section, &options, source);
+        assert!(result.is_none()); // Should not insert a leading newline after BOM
+    }
+
+    #[test]
     fn test_skip_section_with_comment() {
         let source = "unit MyUnit; // comment";
         let code_section = CodeSection {
