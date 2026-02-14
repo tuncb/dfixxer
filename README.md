@@ -1,6 +1,6 @@
 # dfixxer
 
-Version: 0.9.4
+Version: 0.9.5
 
 A command-line tool that reformats Delphi/Pascal files.
 
