@@ -42,12 +42,12 @@ begin
   // Already has multiple parameters, should not be changed
 end;
 
-procedure TMyClass.ClassProc;
+procedure TMyClass.ClassProc();
 begin
   // Class method without parameters
 end;
 
-function TMyClass.ClassFunc: Boolean;
+function TMyClass.ClassFunc(): Boolean;
 begin
   Result := True;
 end;

@@ -362,20 +362,27 @@ fn transform_procedure_declaration_to_code_section(declproc_node: Node) -> Optio
         return None;
     }
 
-    let mut proc_or_func_node = None;
-    let mut identifier_node = None;
+    let mut routine_keyword_node = None;
+    let mut routine_name_node = None;
     let mut has_decl_args = false;
     let mut semicolon_node = None;
 
-    // Examine all children to find the pattern: kProcedure/kFunction -> identifier -> ; (no declArgs)
+    // Examine all children to find declaration heads without declArgs (no parentheses).
+    // The routine name can be a plain identifier or a qualified genericDot.
     for i in 0..declproc_node.child_count() {
         if let Some(child) = declproc_node.child(i) {
             match child.kind() {
-                "kProcedure" | "kFunction" => {
-                    proc_or_func_node = Some(child);
+                "kProcedure" | "kFunction" | "kConstructor" | "kDestructor" | "kOperator" => {
+                    routine_keyword_node = Some(child);
                 }
                 "identifier" => {
-                    identifier_node = Some(child);
+                    if routine_name_node.is_none() {
+                        routine_name_node = Some(child);
+                    }
+                }
+                "genericDot" => {
+                    // Prefer qualified names (e.g. TMyClass.Create) when present.
+                    routine_name_node = Some(child);
                 }
                 "declArgs" => {
                     has_decl_args = true; // This procedure/function already has parentheses
@@ -389,24 +396,25 @@ fn transform_procedure_declaration_to_code_section(declproc_node: Node) -> Optio
     }
 
     // Only process if we have the pattern without declArgs
-    if let (Some(proc_func), Some(identifier), Some(semicolon)) =
-        (proc_or_func_node, identifier_node, semicolon_node)
+    if let (Some(routine_keyword), Some(routine_name), Some(semicolon)) =
+        (routine_keyword_node, routine_name_node, semicolon_node)
         && !has_decl_args
     {
-        // Determine if it's a procedure or function
-        let kind = if proc_func.kind() == "kProcedure" {
-            Kind::ProcedureDeclaration
-        } else {
-            Kind::FunctionDeclaration
+        // Constructors/destructors behave like procedures for this transform.
+        // Operators behave like functions (may include a return type).
+        let kind = match routine_keyword.kind() {
+            "kProcedure" | "kConstructor" | "kDestructor" => Kind::ProcedureDeclaration,
+            "kFunction" | "kOperator" => Kind::FunctionDeclaration,
+            _ => return None,
         };
 
         let siblings = vec![
-            node_to_parsed_node(identifier, Kind::Identifier),
+            node_to_parsed_node(routine_name, Kind::Identifier),
             node_to_parsed_node(semicolon, Kind::Semicolon),
         ];
 
         return Some(CodeSection {
-            keyword: node_to_parsed_node(proc_func, kind),
+            keyword: node_to_parsed_node(routine_keyword, kind),
             siblings,
         });
     }
@@ -743,6 +751,73 @@ end."#;
             assert!(has_identifier, "Should have identifier in siblings");
             assert!(has_semicolon, "Should have semicolon in siblings");
         }
+    }
+
+    #[test]
+    fn test_parse_constructor_destructor_operator_without_parentheses() {
+        let source = r#"unit TestCtorDtorOperator;
+interface
+
+type
+  TMyRecord = record
+    class operator Negative: TMyRecord;
+  end;
+
+  TMyClass = class
+  public
+    constructor Create;
+    destructor Destroy;
+  end;
+
+implementation
+
+constructor TMyClass.Create;
+begin
+end;
+
+destructor TMyClass.Destroy;
+begin
+end;
+
+class operator TMyRecord.Negative: TMyRecord;
+begin
+end;
+
+end."#;
+
+        let result = parse(source).expect("Failed to parse");
+
+        let routine_sections: Vec<_> = result
+            .code_sections
+            .iter()
+            .filter(|cs| {
+                cs.keyword.kind == Kind::ProcedureDeclaration
+                    || cs.keyword.kind == Kind::FunctionDeclaration
+            })
+            .collect();
+
+        // Interface: Create, Destroy, Negative
+        // Implementation: TMyClass.Create, TMyClass.Destroy, TMyRecord.Negative
+        assert_eq!(routine_sections.len(), 6);
+
+        let mut names = Vec::new();
+        for section in &routine_sections {
+            let identifier = section
+                .siblings
+                .iter()
+                .find(|s| s.kind == Kind::Identifier)
+                .expect("Should have identifier-like routine name in siblings");
+            let has_semicolon = section.siblings.iter().any(|s| s.kind == Kind::Semicolon);
+            assert!(has_semicolon, "Should have semicolon in siblings");
+            names.push(source[identifier.start_byte..identifier.end_byte].to_string());
+        }
+
+        assert!(names.contains(&"Create".to_string()));
+        assert!(names.contains(&"Destroy".to_string()));
+        assert!(names.contains(&"Negative".to_string()));
+        assert!(names.contains(&"TMyClass.Create".to_string()));
+        assert!(names.contains(&"TMyClass.Destroy".to_string()));
+        assert!(names.contains(&"TMyRecord.Negative".to_string()));
     }
 
     #[test]
