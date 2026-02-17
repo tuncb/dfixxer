@@ -72,6 +72,7 @@ pub struct TextChangeOptions {
     pub space_inside_paren_star_comments: bool, // Add one space after '(*' and before '*)' for non-directive paren-star comments
     pub space_after_line_comment_slashes: bool, // Ensure at least one space after // slash run, preserving existing spacing
     pub trim_trailing_whitespace: bool,
+    pub enforce_word_casing: Vec<String>, // Canonical casing for identifiers; matching is case-insensitive
 }
 
 impl Default for TextChangeOptions {
@@ -100,6 +101,7 @@ impl Default for TextChangeOptions {
             space_inside_paren_star_comments: true,
             space_after_line_comment_slashes: true,
             trim_trailing_whitespace: true,
+            enforce_word_casing: Vec::new(),
         }
     }
 }
@@ -654,6 +656,7 @@ mod tests {
         assert!(options.text_changes.space_inside_brace_comments);
         assert!(options.text_changes.space_inside_paren_star_comments);
         assert!(options.text_changes.space_after_line_comment_slashes);
+        assert!(options.text_changes.enforce_word_casing.is_empty());
     }
 
     #[test]
@@ -680,6 +683,7 @@ mod tests {
         assert!(options.text_changes.space_inside_brace_comments);
         assert!(options.text_changes.space_inside_paren_star_comments);
         assert!(options.text_changes.space_after_line_comment_slashes);
+        assert!(options.text_changes.enforce_word_casing.is_empty());
     }
 
     #[test]
@@ -705,6 +709,7 @@ mod tests {
                 comma: SpaceOperation::NoChange,
                 semi_colon: SpaceOperation::After,
                 trim_trailing_whitespace: true,
+                enforce_word_casing: vec!["HTTPClient".to_string(), "iOS".to_string()],
                 ..Default::default()
             },
         };
@@ -739,6 +744,10 @@ mod tests {
         );
         assert_eq!(loaded_options.line_ending, LineEnding::Lf);
         assert_eq!(loaded_options.text_changes.comma, SpaceOperation::NoChange);
+        assert_eq!(
+            loaded_options.text_changes.enforce_word_casing,
+            vec!["HTTPClient".to_string(), "iOS".to_string()]
+        );
         // Manual cleanup
         fs::remove_file(&file_path).ok();
         fs::remove_dir(&temp_path).ok();
@@ -843,6 +852,31 @@ enable_uses_section = false
         assert_eq!(options.uses_section.module_names_to_update.len(), 258);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
+        assert!(options.text_changes.enforce_word_casing.is_empty());
+    }
+
+    #[test]
+    fn test_text_changes_enforce_word_casing_config() {
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("word_casing_config.toml");
+
+        fs::write(
+            &file_path,
+            r#"
+[text_changes]
+enforce_word_casing = ["HTTPClient", "iOS"]
+"#,
+        )
+        .unwrap();
+
+        let options = Options::load_from_file(&file_path).unwrap();
+        assert_eq!(
+            options.text_changes.enforce_word_casing,
+            vec!["HTTPClient".to_string(), "iOS".to_string()]
+        );
+
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
     }
 
     #[test]

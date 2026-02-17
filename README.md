@@ -283,7 +283,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `enable_text_transformations` (boolean) - Enable text formatting transformations (default: `true`)
 
 #### `text_changes` (object)
-- **Purpose**: Controls spacing around various operators and punctuation
+- **Purpose**: Controls spacing around various operators/punctuation and optional identifier casing enforcement
 - **Default**: Optimized defaults for Pascal code formatting
 - **Properties**:
   - Punctuation:
@@ -314,6 +314,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
     - `assign_div` - Divide assignment `/=` (default: `"BeforeAndAfter"`)
   - Other:
     - `trim_trailing_whitespace` - Remove trailing whitespace (default: `true`)
+    - `enforce_word_casing` - List of canonical identifier spellings to enforce in code (case-insensitive match; strings/comments are not changed) (default: `[]`)
 - **Space Operations**:
   - `"NoChange"` - Leave spacing as-is
   - `"Before"` - Add space before operator
@@ -391,6 +392,7 @@ space_inside_brace_comments = true
 space_inside_paren_star_comments = true
 space_after_line_comment_slashes = true
 trim_trailing_whitespace = true
+enforce_word_casing = ["HTTPClient", "iOS"]
 ```
 
 ### Configuration File Discovery

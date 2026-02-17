@@ -1,6 +1,7 @@
 use crate::options::{SpaceOperation, TextChangeOptions};
 use crate::parser::SpacingContext;
 use crate::replacements::TextReplacement;
+use std::collections::HashMap;
 
 /// Apply text transformations based on the given options to a text string
 /// Returns None if there are no changes, Some(replacement) if changes are made
@@ -447,6 +448,14 @@ fn should_add_space_after_generic_closing_angle(next_char: Option<char>) -> bool
     )
 }
 
+fn is_identifier_start(ch: char) -> bool {
+    ch == '_' || ch.is_alphabetic()
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    ch == '_' || ch.is_alphanumeric()
+}
+
 /// Apply all text changes to a text string based on the given options
 fn apply_text_changes(
     text: &str,
@@ -472,6 +481,12 @@ fn apply_text_changes(
     let mut prev_char: Option<char> = None;
     let mut brace_comment_apply_single_line_spacing = false;
     let mut paren_star_comment_apply_single_line_spacing = false;
+    let enforce_word_casing_rules: HashMap<String, String> = options
+        .enforce_word_casing
+        .iter()
+        .filter(|word| !word.is_empty())
+        .map(|word| (word.to_lowercase(), word.clone()))
+        .collect();
 
     // For trimming we accumulate current line raw output, then on newline flush trimmed.
     let do_trim = options.trim_trailing_whitespace;
@@ -1187,6 +1202,36 @@ fn apply_text_changes(
                         flush_line_ending(ch, &mut current_line, &mut result);
                     }
                     _ => {
+                        if !enforce_word_casing_rules.is_empty() && is_identifier_start(ch) {
+                            let mut identifier = String::new();
+                            identifier.push(ch);
+                            let mut last_identifier_char = ch;
+
+                            while let Some((_, next_ch)) = chars.peek().copied() {
+                                if is_identifier_continue(next_ch) {
+                                    let (_, consumed) = chars.next().unwrap();
+                                    identifier.push(consumed);
+                                    last_identifier_char = consumed;
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            let normalized_identifier = identifier.to_lowercase();
+                            let output = enforce_word_casing_rules
+                                .get(&normalized_identifier)
+                                .unwrap_or(&identifier);
+
+                            if do_trim {
+                                current_line.push_str(output);
+                            } else {
+                                result.push_str(output);
+                            }
+
+                            prev_char = Some(last_identifier_char);
+                            continue;
+                        }
+
                         push_char(ch, &mut current_line, &mut result);
                     }
                 }
@@ -2461,6 +2506,48 @@ end."#;
         assert_eq!(
             result.unwrap(),
             "begin\n  X :=\n      A\n    - B\n    + C;\nend."
+        );
+    }
+
+    #[test]
+    fn test_enforce_word_casing_case_insensitive_for_identifiers() {
+        let text = "HTTPCLIENT := httpclient + HttpClient;";
+        let options = TextChangeOptions {
+            enforce_word_casing: vec!["HTTPClient".to_string()],
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "HTTPClient := HTTPClient + HTTPClient;");
+    }
+
+    #[test]
+    fn test_enforce_word_casing_respects_identifier_boundaries() {
+        let text = "HTTPClientHelper := HTTPCLIENT;";
+        let options = TextChangeOptions {
+            enforce_word_casing: vec!["HTTPClient".to_string()],
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(result.unwrap(), "HTTPClientHelper := HTTPClient;");
+    }
+
+    #[test]
+    fn test_enforce_word_casing_skips_strings_and_comments() {
+        let text = "msg := 'httpclient'; // httpclient\nhttpclient := 1;";
+        let options = TextChangeOptions {
+            enforce_word_casing: vec!["HTTPClient".to_string()],
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let result = apply_text_changes(text, &options, 0, None);
+        assert_eq!(
+            result.unwrap(),
+            "msg := 'httpclient'; // httpclient\nHTTPClient := 1;"
         );
     }
 }
