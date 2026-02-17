@@ -84,6 +84,20 @@ pub struct SpacingContext {
     pub expr_binary_gt_positions: HashSet<usize>,
 }
 
+/// Candidate info for expanding a bare `inherited;` statement to an explicit call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InheritedExpansionCandidate {
+    pub insert_at: usize,
+    pub routine_name: String,
+    pub arg_names: Vec<String>,
+}
+
+/// Collected context for inherited-call expansion transformations.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InheritedExpansionContext {
+    pub candidates: Vec<InheritedExpansionCandidate>,
+}
+
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
     let mut parser = Parser::new();
     parser
@@ -253,6 +267,208 @@ fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContex
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i) {
             collect_spacing_context(child, source, context);
+        }
+    }
+}
+
+fn extract_routine_name_from_declproc(declproc_node: Node, source: &str) -> Option<String> {
+    let mut fallback_identifier: Option<String> = None;
+
+    for i in 0..declproc_node.child_count() {
+        if let Some(child) = declproc_node.child(i) {
+            match child.kind() {
+                "identifier" => {
+                    if fallback_identifier.is_none() {
+                        fallback_identifier =
+                            Some(source[child.start_byte()..child.end_byte()].to_string());
+                    }
+                }
+                "genericDot" => {
+                    let mut last_identifier: Option<String> = None;
+                    for j in 0..child.child_count() {
+                        if let Some(dot_child) = child.child(j)
+                            && dot_child.kind() == "identifier"
+                        {
+                            last_identifier = Some(
+                                source[dot_child.start_byte()..dot_child.end_byte()].to_string(),
+                            );
+                        }
+                    }
+                    if last_identifier.is_some() {
+                        return last_identifier;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fallback_identifier
+}
+
+fn extract_arg_names_from_decl_args(declargs_node: Node, source: &str) -> Vec<String> {
+    let mut arg_names = Vec::new();
+
+    for i in 0..declargs_node.child_count() {
+        if let Some(child) = declargs_node.child(i) {
+            if child.kind() != "declArg" {
+                continue;
+            }
+
+            for j in 0..child.child_count() {
+                if let Some(arg_child) = child.child(j) {
+                    if arg_child.kind() == ":" {
+                        break;
+                    }
+                    if arg_child.kind() == "identifier" {
+                        arg_names
+                            .push(source[arg_child.start_byte()..arg_child.end_byte()].to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    arg_names
+}
+
+fn bare_inherited_insert_at(statement: Node, source: &str) -> Option<usize> {
+    if statement.kind() != "statement" || statement.has_error() {
+        return None;
+    }
+
+    let mut inherited_node = None;
+    let mut semicolon_node = None;
+
+    for j in 0..statement.child_count() {
+        if let Some(statement_child) = statement.child(j) {
+            match statement_child.kind() {
+                "inherited" => {
+                    if inherited_node.is_some() {
+                        return None;
+                    }
+                    inherited_node = Some(statement_child);
+                }
+                ";" => {
+                    if semicolon_node.is_none() {
+                        semicolon_node = Some(statement_child);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let (Some(inherited_node), Some(semicolon_node)) = (inherited_node, semicolon_node) else {
+        return None;
+    };
+
+    // Bare inherited must only contain the keyword itself.
+    if inherited_node.child_count() != 1 {
+        return None;
+    }
+    let inherited_keyword = inherited_node.child(0)?;
+    if inherited_keyword.kind() != "kInherited" {
+        return None;
+    }
+
+    // Only expand when there is no inline content between `inherited` and `;`.
+    let between = &source[inherited_node.end_byte()..semicolon_node.start_byte()];
+    if !between.chars().all(char::is_whitespace) {
+        return None;
+    }
+
+    Some(inherited_node.end_byte())
+}
+
+fn collect_bare_inherited_insert_points(node: Node, source: &str, insert_points: &mut Vec<usize>) {
+    // Nested routine definitions should be handled by their own defProc traversal.
+    if node.kind() == "defProc" {
+        return;
+    }
+
+    if let Some(insert_at) = bare_inherited_insert_at(node, source) {
+        insert_points.push(insert_at);
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_bare_inherited_insert_points(child, source, insert_points);
+        }
+    }
+}
+
+fn collect_inherited_candidates_from_defproc(
+    defproc_node: Node,
+    source: &str,
+    context: &mut InheritedExpansionContext,
+) {
+    if defproc_node.has_error() {
+        return;
+    }
+
+    let mut declproc_node = None;
+    let mut block_node = None;
+
+    for i in 0..defproc_node.child_count() {
+        if let Some(child) = defproc_node.child(i) {
+            match child.kind() {
+                "declProc" => {
+                    declproc_node = Some(child);
+                }
+                "block" => {
+                    block_node = Some(child);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let (Some(declproc_node), Some(block_node)) = (declproc_node, block_node) else {
+        return;
+    };
+
+    if declproc_node.has_error() || block_node.has_error() {
+        return;
+    }
+
+    let Some(routine_name) = extract_routine_name_from_declproc(declproc_node, source) else {
+        return;
+    };
+
+    let mut arg_names = Vec::new();
+    for i in 0..declproc_node.child_count() {
+        if let Some(child) = declproc_node.child(i)
+            && child.kind() == "declArgs"
+        {
+            arg_names = extract_arg_names_from_decl_args(child, source);
+            break;
+        }
+    }
+
+    let mut insert_points = Vec::new();
+    collect_bare_inherited_insert_points(block_node, source, &mut insert_points);
+    for insert_at in insert_points {
+        context.candidates.push(InheritedExpansionCandidate {
+            insert_at,
+            routine_name: routine_name.clone(),
+            arg_names: arg_names.clone(),
+        });
+    }
+}
+
+fn collect_inherited_expansion_context(
+    node: Node,
+    source: &str,
+    context: &mut InheritedExpansionContext,
+) {
+    if node.kind() == "defProc" {
+        collect_inherited_candidates_from_defproc(node, source, context);
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_inherited_expansion_context(child, source, context);
         }
     }
 }
@@ -433,10 +649,10 @@ pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
     Ok(ParseResult { code_sections })
 }
 
-/// Parse source code and also collect spacing context for AST-aware text transformations.
-pub fn parse_with_spacing_context(
+/// Parse source code and collect parser contexts needed by transformations.
+pub fn parse_with_contexts(
     source: &str,
-) -> Result<(ParseResult, SpacingContext), DFixxerError> {
+) -> Result<(ParseResult, SpacingContext, InheritedExpansionContext), DFixxerError> {
     let tree = parse_to_tree(source)?;
     let mut code_sections = Vec::new();
     traverse_and_parse(tree.root_node(), &mut code_sections);
@@ -444,7 +660,23 @@ pub fn parse_with_spacing_context(
     let mut spacing_context = SpacingContext::default();
     collect_spacing_context(tree.root_node(), source, &mut spacing_context);
 
-    Ok((ParseResult { code_sections }, spacing_context))
+    let mut inherited_expansion_context = InheritedExpansionContext::default();
+    collect_inherited_expansion_context(tree.root_node(), source, &mut inherited_expansion_context);
+
+    Ok((
+        ParseResult { code_sections },
+        spacing_context,
+        inherited_expansion_context,
+    ))
+}
+
+/// Parse source code and also collect spacing context for AST-aware text transformations.
+#[allow(dead_code)]
+pub fn parse_with_spacing_context(
+    source: &str,
+) -> Result<(ParseResult, SpacingContext), DFixxerError> {
+    let (parse_result, spacing_context, _) = parse_with_contexts(source)?;
+    Ok((parse_result, spacing_context))
 }
 
 /// Parse the source, create the tree-sitter tree, and print each node's kind and text
@@ -846,6 +1078,192 @@ end."#;
             proc_func_sections.len(),
             0,
             "Should not detect procedures/functions that already have parentheses"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_inherited_expansion_with_args() {
+        let source = r#"unit TestInherited;
+interface
+
+type
+  TBase = class
+  public
+    constructor Create(const AName: string);
+  end;
+
+  TChild = class(TBase)
+  public
+    constructor Create(const AName: string);
+  end;
+
+implementation
+
+constructor TChild.Create(const AName: string);
+begin
+  inherited;
+end;
+
+end."#;
+
+        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        assert_eq!(inherited_context.candidates.len(), 1);
+
+        let candidate = &inherited_context.candidates[0];
+        let expected_insert = source
+            .find("inherited")
+            .expect("inherited should exist in test source")
+            + "inherited".len();
+        assert_eq!(candidate.insert_at, expected_insert);
+        assert_eq!(candidate.routine_name, "Create");
+        assert_eq!(candidate.arg_names, vec!["AName".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_grouped_and_modifed_param_names() {
+        let source = r#"unit TestInherited;
+interface
+
+type
+  TBase = class
+  public
+    procedure Update(var AValue: Integer; out AErr: string; A, B: Integer);
+  end;
+
+  TChild = class(TBase)
+  public
+    procedure Update(var AValue: Integer; out AErr: string; A, B: Integer);
+  end;
+
+implementation
+
+procedure TChild.Update(var AValue: Integer; out AErr: string; A, B: Integer);
+begin
+  inherited;
+end;
+
+end."#;
+
+        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        assert_eq!(inherited_context.candidates.len(), 1);
+
+        let candidate = &inherited_context.candidates[0];
+        assert_eq!(candidate.routine_name, "Update");
+        assert_eq!(
+            candidate.arg_names,
+            vec![
+                "AValue".to_string(),
+                "AErr".to_string(),
+                "A".to_string(),
+                "B".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_inherited_expansion_without_args() {
+        let source = r#"unit TestInherited;
+interface
+
+type
+  TBase = class
+  public
+    destructor Destroy; virtual;
+  end;
+
+  TChild = class(TBase)
+  public
+    destructor Destroy; override;
+  end;
+
+implementation
+
+destructor TChild.Destroy;
+begin
+  inherited;
+end;
+
+end."#;
+
+        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        assert_eq!(inherited_context.candidates.len(), 1);
+
+        let candidate = &inherited_context.candidates[0];
+        assert_eq!(candidate.routine_name, "Destroy");
+        assert!(candidate.arg_names.is_empty());
+    }
+
+    #[test]
+    fn test_parse_with_contexts_skips_non_bare_inherited_forms() {
+        let source = r#"unit TestInherited;
+interface
+
+type
+  TBase = class
+  public
+    constructor Create(const AName: string);
+  end;
+
+  TChild = class(TBase)
+  public
+    constructor Create(const AName: string);
+  end;
+
+implementation
+
+constructor TChild.Create(const AName: string);
+begin
+  inherited Create;
+  inherited Create(AName);
+end;
+
+end."#;
+
+        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        assert!(
+            inherited_context.candidates.is_empty(),
+            "Only bare inherited statements should produce expansion candidates"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_nested_bare_inherited() {
+        let source = r#"unit TestInherited;
+interface
+
+type
+  TBase = class
+  public
+    procedure DoWork(const AName: string);
+  end;
+
+  TChild = class(TBase)
+  public
+    procedure DoWork(const AName: string);
+  end;
+
+implementation
+
+procedure TChild.DoWork(const AName: string);
+begin
+  if AName <> '' then
+  begin
+    inherited;
+  end;
+end;
+
+end."#;
+
+        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        assert_eq!(
+            inherited_context.candidates.len(),
+            1,
+            "Nested bare inherited statements should be collected"
+        );
+        assert_eq!(inherited_context.candidates[0].routine_name, "DoWork");
+        assert_eq!(
+            inherited_context.candidates[0].arg_names,
+            vec!["AName".to_string()]
         );
     }
 }

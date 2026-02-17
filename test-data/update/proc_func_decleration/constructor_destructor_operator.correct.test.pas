@@ -31,7 +31,7 @@ end;
 
 destructor TMyClass.Destroy();
 begin
-  inherited;
+  inherited Destroy();
 end;
 
 procedure TMyClass.Reset();

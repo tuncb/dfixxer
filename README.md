@@ -280,6 +280,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `enable_unit_program_section` (boolean) - Enable unit/program section processing (default: `true`)
   - `enable_single_keyword_sections` (boolean) - Enable single keyword section processing (default: `true`)
   - `enable_procedure_section` (boolean) - Enable procedure section processing (default: `true`)
+  - `enable_inherited_call_expansion` (boolean) - Expand bare `inherited;` to an explicit inherited call using the current routine name/arguments (default: `true`)
   - `enable_text_transformations` (boolean) - Enable text formatting transformations (default: `true`)
 
 #### `text_changes` (object)
@@ -365,6 +366,7 @@ enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
+enable_inherited_call_expansion = true
 enable_text_transformations = true
 
 # Control text formatting and spacing

@@ -6,6 +6,7 @@ use diffy::create_patch;
 mod options;
 use options::{Options, find_custom_config_for_file, should_exclude_file};
 mod replacements;
+mod transform_inherited_calls;
 mod transform_procedure_section;
 mod transform_single_keyword_sections;
 mod transform_text;
@@ -16,8 +17,9 @@ use replacements::{
     TextReplacement, apply_replacements_to_string, compute_source_sections, merge_replacements,
 };
 mod parser;
-use parser::{parse, parse_with_spacing_context};
+use parser::{parse, parse_with_contexts};
 
+use crate::transform_inherited_calls::transform_inherited_calls;
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
 use crate::transform_unit_program_section::transform_unit_program_section;
@@ -108,8 +110,8 @@ fn process_file(
     let source = timing.time_operation_result("File loading", || load_file(filename))?;
 
     // Time parsing
-    let (parse_result, spacing_context) =
-        timing.time_operation_result("Parsing", || parse_with_spacing_context(&source))?;
+    let (parse_result, spacing_context, inherited_expansion_context) =
+        timing.time_operation_result("Parsing", || parse_with_contexts(&source))?;
 
     // Helper function to apply text transformations to a replacement if enabled
     let apply_text_transformation_if_enabled =
@@ -131,7 +133,7 @@ fn process_file(
 
     // Time transformation
     let mut replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
-        parse_result
+        let mut replacements: Vec<TextReplacement> = parse_result
             .code_sections
             .iter()
             .filter_map(|code_section| match code_section.keyword.kind {
@@ -159,7 +161,16 @@ fn process_file(
                 }
                 _ => None,
             })
-            .collect()
+            .collect();
+
+        if options.transformations.enable_inherited_call_expansion {
+            let inherited_replacements = transform_inherited_calls(&inherited_expansion_context)
+                .into_iter()
+                .filter_map(apply_text_transformation_if_enabled);
+            replacements.extend(inherited_replacements);
+        }
+
+        replacements
     });
 
     // Apply text transformations if enabled
