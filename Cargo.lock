@@ -678,8 +678,8 @@ checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
 
 [[package]]
 name = "tree-sitter-pascal"
-version = "0.10.2"
-source = "git+https://github.com/tuncb/tree-sitter-pascal-dfixxer-fork#50099972c79ff875073fa07513f48c8feee36ced"
+version = "0.10.3"
+source = "git+https://github.com/tuncb/tree-sitter-pascal-dfixxer-fork#2dffa33e95e5e69264568cd858d6e4e336205b57"
 dependencies = [
  "cc",
  "tree-sitter-language",
