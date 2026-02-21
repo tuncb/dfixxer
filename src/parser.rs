@@ -82,6 +82,7 @@ pub struct SpacingContext {
     pub generic_angle_positions: HashSet<usize>,
     pub expr_binary_lt_positions: HashSet<usize>,
     pub expr_binary_gt_positions: HashSet<usize>,
+    pub error_ranges: Vec<(usize, usize)>,
 }
 
 /// Candidate info for expanding a bare `inherited;` statement to an explicit call.
@@ -194,18 +195,30 @@ fn traverse_and_parse<'a>(node: Node<'a>, code_sections: &mut Vec<CodeSection>) 
     }
 }
 
+fn collect_generic_angle_positions(node: Node, source: &str, context: &mut SpacingContext) {
+    let start = node.start_byte();
+    let end = node.end_byte();
+    if start < end && end <= source.len() {
+        let text = &source[start..end];
+        for (offset, ch) in text.char_indices() {
+            if ch == '<' || ch == '>' {
+                context.generic_angle_positions.insert(start + offset);
+            }
+        }
+    }
+}
+
 fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContext) {
     match node.kind() {
-        "genericTpl" | "typerefTpl" | "genericDot" | "exprTpl" => {
-            let start = node.start_byte();
-            let end = node.end_byte();
-            if start < end && end <= source.len() {
-                let text = &source[start..end];
-                for (offset, ch) in text.char_indices() {
-                    if ch == '<' || ch == '>' {
-                        context.generic_angle_positions.insert(start + offset);
-                    }
-                }
+        "genericTpl" | "typerefTpl" | "genericDot" => {
+            collect_generic_angle_positions(node, source, context);
+        }
+        "exprTpl" => {
+            // Recovery nodes may use exprTpl for non-generic text (e.g. "X < Length(A), 'msg'").
+            // Skip generic-angle tagging for errored templates so formatter does not rewrite
+            // binary comparisons as generic brackets.
+            if !node.has_error() {
+                collect_generic_angle_positions(node, source, context);
             }
         }
         "exprUnary" => {
@@ -269,6 +282,48 @@ fn collect_spacing_context(node: Node, source: &str, context: &mut SpacingContex
             collect_spacing_context(child, source, context);
         }
     }
+}
+
+fn is_error_guard_node(node: Node) -> bool {
+    node.kind() == "exprTpl" && node.has_error()
+}
+
+fn collect_error_ranges(node: Node, ranges: &mut Vec<(usize, usize)>) {
+    if is_error_guard_node(node) {
+        let start = node.start_byte();
+        let end = node.end_byte();
+        if start < end {
+            ranges.push((start, end));
+        }
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_error_ranges(child, ranges);
+        }
+    }
+}
+
+fn normalize_ranges(ranges: &mut Vec<(usize, usize)>) {
+    if ranges.is_empty() {
+        return;
+    }
+
+    ranges.sort_unstable_by_key(|(start, end)| (*start, *end));
+
+    let mut merged = Vec::with_capacity(ranges.len());
+    let mut current = ranges[0];
+
+    for &(start, end) in ranges.iter().skip(1) {
+        if start <= current.1 {
+            current.1 = current.1.max(end);
+        } else {
+            merged.push(current);
+            current = (start, end);
+        }
+    }
+    merged.push(current);
+    *ranges = merged;
 }
 
 fn extract_routine_name_from_declproc(declproc_node: Node, source: &str) -> Option<String> {
@@ -659,6 +714,8 @@ pub fn parse_with_contexts(
 
     let mut spacing_context = SpacingContext::default();
     collect_spacing_context(tree.root_node(), source, &mut spacing_context);
+    collect_error_ranges(tree.root_node(), &mut spacing_context.error_ranges);
+    normalize_ranges(&mut spacing_context.error_ranges);
 
     let mut inherited_expansion_context = InheritedExpansionContext::default();
     collect_inherited_expansion_context(tree.root_node(), source, &mut inherited_expansion_context);

@@ -456,8 +456,84 @@ fn is_identifier_continue(ch: char) -> bool {
     ch == '_' || ch.is_alphanumeric()
 }
 
+fn overlapping_error_ranges(
+    context: Option<&SpacingContext>,
+    start_offset: usize,
+    text_len: usize,
+) -> Vec<(usize, usize)> {
+    let Some(ctx) = context else {
+        return Vec::new();
+    };
+    if text_len == 0 || ctx.error_ranges.is_empty() {
+        return Vec::new();
+    }
+
+    let end_offset = start_offset + text_len;
+    let mut overlaps = Vec::new();
+    for &(range_start, range_end) in &ctx.error_ranges {
+        if range_start >= end_offset {
+            break;
+        }
+        if range_end <= start_offset {
+            continue;
+        }
+        overlaps.push((range_start.max(start_offset), range_end.min(end_offset)));
+    }
+    overlaps
+}
+
 /// Apply all text changes to a text string based on the given options
 fn apply_text_changes(
+    text: &str,
+    options: &TextChangeOptions,
+    start_offset: usize,
+    context: Option<&SpacingContext>,
+) -> Option<String> {
+    let error_ranges = overlapping_error_ranges(context, start_offset, text.len());
+    if error_ranges.is_empty() {
+        return apply_text_changes_core(text, options, start_offset, context);
+    }
+
+    let mut output = String::with_capacity(text.len());
+    let mut cursor_abs = start_offset;
+    let span_end = start_offset + text.len();
+
+    for (error_start, error_end) in error_ranges {
+        if cursor_abs < error_start {
+            let rel_start = cursor_abs - start_offset;
+            let rel_end = error_start - start_offset;
+            let clean_segment = &text[rel_start..rel_end];
+            if let Some(changed) =
+                apply_text_changes_core(clean_segment, options, cursor_abs, context)
+            {
+                output.push_str(&changed);
+            } else {
+                output.push_str(clean_segment);
+            }
+        }
+
+        let rel_error_start = error_start - start_offset;
+        let rel_error_end = error_end - start_offset;
+        output.push_str(&text[rel_error_start..rel_error_end]);
+        cursor_abs = error_end;
+    }
+
+    if cursor_abs < span_end {
+        let rel_start = cursor_abs - start_offset;
+        let clean_segment = &text[rel_start..];
+        if let Some(changed) = apply_text_changes_core(clean_segment, options, cursor_abs, context)
+        {
+            output.push_str(&changed);
+        } else {
+            output.push_str(clean_segment);
+        }
+    }
+
+    if output == text { None } else { Some(output) }
+}
+
+/// Apply all text changes to a text string based on the given options
+fn apply_text_changes_core(
     text: &str,
     options: &TextChangeOptions,
     start_offset: usize,
@@ -2496,6 +2572,56 @@ end."#;
 
         assert!(transformed.contains("function GenericAfterBoundary: TArray<Integer>;"));
         assert!(!transformed.contains("function GenericAfterBoundary: TArray < Integer >;"));
+    }
+
+    #[test]
+    fn test_assert_lt_length_keeps_binary_spacing_when_nochange() {
+        let source = r#"unit ReproLtLength;
+interface
+implementation
+
+procedure P(const X: Integer; const A: TArray<Integer>);
+begin
+  Assert(X < Length(A), 'msg');
+end;
+
+end."#;
+
+        let options = TextChangeOptions {
+            comma: SpaceOperation::NoChange,
+            semi_colon: SpaceOperation::NoChange,
+            lt: SpaceOperation::NoChange,
+            eq: SpaceOperation::NoChange,
+            neq: SpaceOperation::NoChange,
+            gt: SpaceOperation::NoChange,
+            lte: SpaceOperation::NoChange,
+            gte: SpaceOperation::NoChange,
+            add: SpaceOperation::NoChange,
+            sub: SpaceOperation::NoChange,
+            mul: SpaceOperation::NoChange,
+            fdiv: SpaceOperation::NoChange,
+            assign: SpaceOperation::NoChange,
+            assign_add: SpaceOperation::NoChange,
+            assign_sub: SpaceOperation::NoChange,
+            assign_mul: SpaceOperation::NoChange,
+            assign_div: SpaceOperation::NoChange,
+            colon: SpaceOperation::NoChange,
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+
+        let (_, context) = crate::parser::parse_with_spacing_context(source).unwrap();
+        let transformed = apply_text_transformation_with_context(
+            0,
+            source.len(),
+            source,
+            &options,
+            Some(&context),
+        )
+        .map(|r| r.text)
+        .unwrap_or_else(|| source.to_string());
+
+        assert_eq!(transformed, source);
     }
 
     #[test]

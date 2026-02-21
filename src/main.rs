@@ -112,6 +112,15 @@ fn process_file(
     // Time parsing
     let (parse_result, spacing_context, inherited_expansion_context) =
         timing.time_operation_result("Parsing", || parse_with_contexts(&source))?;
+    if !spacing_context.error_ranges.is_empty() {
+        let message = format!(
+            "Parser recovered with {} error span(s) in '{}'; text changes are skipped inside error spans.",
+            spacing_context.error_ranges.len(),
+            filename
+        );
+        log::warn!("{}", message);
+        eprintln!("Warning: {}", message);
+    }
 
     // Helper function to apply text transformations to a replacement if enabled
     let apply_text_transformation_if_enabled =
