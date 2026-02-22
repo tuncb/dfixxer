@@ -39,6 +39,12 @@ fn assert_contents_match(actual_content: &str, expected_content: &str, file_name
         return;
     }
 
+    let normalized_actual = actual_content.replace("\r\n", "\n");
+    let normalized_expected = expected_content.replace("\r\n", "\n");
+    if normalized_actual == normalized_expected {
+        return;
+    }
+
     // Show full content comparison like assert_eq!
     let mut diff_info = "assertion failed: `(left == right)`\n".to_string();
     diff_info.push_str(&format!("Mismatch for file: {}\n", file_name));
@@ -257,7 +263,11 @@ fn test_update_smoke() {
             let correct_content =
                 fs::read_to_string(&correct_file).expect("Failed to read correct file");
 
-            assert_contents_match(&updated_content, &correct_content, name);
+            assert_contents_match(
+                &updated_content,
+                &correct_content,
+                rel_path.to_string_lossy().as_ref(),
+            );
         }
     }
 
