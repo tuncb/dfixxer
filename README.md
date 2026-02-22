@@ -268,7 +268,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   ##### `module_names_to_update` (array of strings)
   - **Purpose**: Map short unit names to fully-qualified names
   - **Format**: Each entry is `"Prefix:ShortName"`
-  - **Behavior**: When the tool encounters `ShortName`, it rewrites it to `Prefix.ShortName` before sorting/formatting
+  - **Behavior**: Matching is case-insensitive. When the tool encounters `ShortName`, it rewrites it to the canonical `Prefix.ShortName` from the mapping before sorting/formatting
   - **Default**: Extensive list of 258 built-in mappings for System, Winapi, and other common namespaces
   - **Example**: `["System:Classes", "Vcl:Dialogs", "FireDAC:Comp.Client"]`
 

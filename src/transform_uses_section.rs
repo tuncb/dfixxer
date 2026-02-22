@@ -64,7 +64,7 @@ fn sort_modules(modules: &[String], options: &Options) -> Vec<String> {
     for mapping in &options.uses_section.module_names_to_update {
         if let Some((prefix, name)) = mapping.split_once(':') {
             for module in modules.iter_mut() {
-                if module == name {
+                if module.eq_ignore_ascii_case(name) {
                     *module = format!("{}.{}", prefix, name);
                 }
             }
@@ -248,6 +248,21 @@ mod tests {
         let expected = "uses\r\n  ;";
         let result = format_uses_replacement(&modules, &options);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sort_modules_applies_module_name_updates_case_insensitive() {
+        let modules = vec!["sysUtils".to_string(), "A".to_string()];
+        let mut options = make_options(
+            UsesSectionStyle::CommaAtTheBeginning,
+            "    ",
+            crate::options::LineEnding::Crlf,
+        );
+        options.uses_section.module_names_to_update = vec!["System:SysUtils".to_string()];
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec!["A", "System.SysUtils"];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
     }
 
     #[test]
