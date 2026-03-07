@@ -238,6 +238,113 @@ impl Default for UsesSectionOptions {
                 "System.Win:TaskbarCore".to_string(),
                 "System.Win:VCLCom".to_string(),
                 "System.Win:WinRT".to_string(),
+                "Vcl:ABAccessibility".to_string(),
+                "Vcl:ActnColorMaps".to_string(),
+                "Vcl:ActnCtrls".to_string(),
+                "Vcl:ActnList".to_string(),
+                "Vcl:ActnMan".to_string(),
+                "Vcl:ActnMenus".to_string(),
+                "Vcl:ActnPopup".to_string(),
+                "Vcl:AppEvnts".to_string(),
+                "Vcl:AxCtrls".to_string(),
+                "Vcl:BandActn".to_string(),
+                "Vcl:BaseImageCollection".to_string(),
+                "Vcl:ButtonGroup".to_string(),
+                "Vcl:Buttons".to_string(),
+                "Vcl:CaptionedDockTree".to_string(),
+                "Vcl:CategoryButtons".to_string(),
+                "Vcl:CheckLst".to_string(),
+                "Vcl:Clipbrd".to_string(),
+                "Vcl:CmAdmCtl".to_string(),
+                "Vcl:ColorGrd".to_string(),
+                "Vcl:ComCtrls".to_string(),
+                "Vcl:ComStrs".to_string(),
+                "Vcl:Consts".to_string(),
+                "Vcl:ControlList".to_string(),
+                "Vcl:Controls".to_string(),
+                "Vcl:CustomizeDlg".to_string(),
+                "Vcl:DdeMan".to_string(),
+                "Vcl:Dialogs".to_string(),
+                "Vcl:Direct2D".to_string(),
+                "Vcl:DockTabSet".to_string(),
+                "Vcl:ExtActns".to_string(),
+                "Vcl:ExtCtrls".to_string(),
+                "Vcl:ExtDlgs".to_string(),
+                "Vcl:FileCtrl".to_string(),
+                "Vcl:FormTabsBar".to_string(),
+                "Vcl:Forms".to_string(),
+                "Vcl:GraphUtil".to_string(),
+                "Vcl:Graphics".to_string(),
+                "Vcl:Grids".to_string(),
+                "Vcl:HtmlHelpViewer".to_string(),
+                "Vcl:IMouse".to_string(),
+                "Vcl:ImageCollection".to_string(),
+                "Vcl.Imaging:GIFConsts".to_string(),
+                "Vcl.Imaging:GIFImg".to_string(),
+                "Vcl.Imaging:JConsts".to_string(),
+                "Vcl.Imaging:jpeg".to_string(),
+                "Vcl.Imaging:pngimage".to_string(),
+                "Vcl.Imaging:pnglang".to_string(),
+                "Vcl:ImgList".to_string(),
+                "Vcl:JumpList".to_string(),
+                "Vcl:ListActns".to_string(),
+                "Vcl:MPlayer".to_string(),
+                "Vcl:Mask".to_string(),
+                "Vcl:Menus".to_string(),
+                "Vcl:NumberBox".to_string(),
+                "Vcl:OleAuto".to_string(),
+                "Vcl:OleConst".to_string(),
+                "Vcl:OleCtnrs".to_string(),
+                "Vcl:OleCtrls".to_string(),
+                "Vcl:OleServer".to_string(),
+                "Vcl:Outline".to_string(),
+                "Vcl:PlatformDefaultStyleActnCtrls".to_string(),
+                "Vcl:Printers".to_string(),
+                "Vcl.Samples:Calendar".to_string(),
+                "Vcl.Samples:DirOutln".to_string(),
+                "Vcl.Samples:Gauges".to_string(),
+                "Vcl.Samples:Spin".to_string(),
+                "Vcl:ShadowWnd".to_string(),
+                "Vcl:ShareContract".to_string(),
+                "Vcl.Shell:ShellConsts".to_string(),
+                "Vcl.Shell:ShellCtrls".to_string(),
+                "Vcl:ShellAnimations".to_string(),
+                "Vcl:Skia".to_string(),
+                "Vcl:StdActnMenus".to_string(),
+                "Vcl:StdActns".to_string(),
+                "Vcl:StdCtrls".to_string(),
+                "Vcl:StdStyleActnCtrls".to_string(),
+                "Vcl:StyleAPI".to_string(),
+                "Vcl:StyleBitmap".to_string(),
+                "Vcl:Styles".to_string(),
+                "Vcl:SvcMgr".to_string(),
+                "Vcl:SysStyles".to_string(),
+                "Vcl:TabNotBk".to_string(),
+                "Vcl:Tabs".to_string(),
+                "Vcl:Taskbar".to_string(),
+                "Vcl:ThemedActnCtrls".to_string(),
+                "Vcl:Themes".to_string(),
+                "Vcl:TitleBarCtrls".to_string(),
+                "Vcl:ToolWin".to_string(),
+                "Vcl.Touch:GestureConsts".to_string(),
+                "Vcl.Touch:GestureCtrls".to_string(),
+                "Vcl.Touch:GestureMgr".to_string(),
+                "Vcl.Touch:Gestures".to_string(),
+                "Vcl.Touch:Keyboard".to_string(),
+                "Vcl.Touch:KeyboardTypes".to_string(),
+                "Vcl:ValEdit".to_string(),
+                "Vcl:VirtualImage".to_string(),
+                "Vcl:VirtualImageList".to_string(),
+                "Vcl:WicImageInit".to_string(),
+                "Vcl:WinHelpViewer".to_string(),
+                "Vcl:WinXCalendars".to_string(),
+                "Vcl:WinXCtrls".to_string(),
+                "Vcl:WinXPanels".to_string(),
+                "Vcl:WinXPickers".to_string(),
+                "Vcl:WindowsStore".to_string(),
+                "Vcl:XPActnCtrls".to_string(),
+                "Vcl:XPMan".to_string(),
+                "Vcl:XPStyleActnCtrls".to_string(),
                 "Winapi:ADOInt".to_string(),
                 "Winapi:AccCtrl".to_string(),
                 "Winapi:AclAPI".to_string(),
@@ -652,7 +759,25 @@ mod tests {
             Vec::<(String, String)>::new()
         );
         assert!(!options.uses_section.module_names_to_update.is_empty());
-        assert_eq!(options.uses_section.module_names_to_update.len(), 258);
+        assert_eq!(options.uses_section.module_names_to_update.len(), 365);
+        assert!(
+            options
+                .uses_section
+                .module_names_to_update
+                .contains(&"Vcl:Controls".to_string())
+        );
+        assert!(
+            options
+                .uses_section
+                .module_names_to_update
+                .contains(&"Vcl.Imaging:jpeg".to_string())
+        );
+        assert!(
+            options
+                .uses_section
+                .module_names_to_update
+                .contains(&"Vcl.Touch:KeyboardTypes".to_string())
+        );
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_inherited_call_expansion);
@@ -680,7 +805,7 @@ mod tests {
             Vec::<(String, String)>::new()
         );
         assert!(!options.uses_section.module_names_to_update.is_empty());
-        assert_eq!(options.uses_section.module_names_to_update.len(), 258);
+        assert_eq!(options.uses_section.module_names_to_update.len(), 365);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_inherited_call_expansion);
@@ -785,7 +910,7 @@ line_ending = "Lf"
             Vec::<String>::new()
         ); // Default
         assert!(!options.uses_section.module_names_to_update.is_empty()); // Default
-        assert_eq!(options.uses_section.module_names_to_update.len(), 258); // Default
+        assert_eq!(options.uses_section.module_names_to_update.len(), 365); // Default
         assert_eq!(options.line_ending, LineEnding::Lf); // From file
 
         // Clean up
@@ -853,7 +978,7 @@ enable_uses_section = false
             Vec::<String>::new()
         );
         assert!(!options.uses_section.module_names_to_update.is_empty());
-        assert_eq!(options.uses_section.module_names_to_update.len(), 258);
+        assert_eq!(options.uses_section.module_names_to_update.len(), 365);
         assert_eq!(options.line_ending, LineEnding::Auto);
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_inherited_call_expansion);

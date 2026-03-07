@@ -266,6 +266,36 @@ mod tests {
     }
 
     #[test]
+    fn test_sort_modules_applies_default_vcl_module_name_updates() {
+        let modules = vec![
+            "Graphics".to_string(),
+            "Dialogs".to_string(),
+            "Forms".to_string(),
+            "Controls".to_string(),
+            "ExtCtrls".to_string(),
+            "GIFConsts".to_string(),
+            "Calendar".to_string(),
+            "ShellCtrls".to_string(),
+            "KeyboardTypes".to_string(),
+        ];
+        let options = Options::default();
+        let sorted = sort_modules(&modules, &options);
+        let expected = vec![
+            "Vcl.Controls",
+            "Vcl.Dialogs",
+            "Vcl.ExtCtrls",
+            "Vcl.Forms",
+            "Vcl.Graphics",
+            "Vcl.Imaging.GIFConsts",
+            "Vcl.Samples.Calendar",
+            "Vcl.Shell.ShellCtrls",
+            "Vcl.Touch.KeyboardTypes",
+        ];
+        let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(sorted, expected);
+    }
+
+    #[test]
     fn test_sort_modules_with_override_namespaces() {
         let modules = vec![
             "A".to_string(),
