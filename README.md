@@ -127,6 +127,35 @@ Parses a Pascal file and prints detailed debug information including parser outp
 - If a uses section or its parent has a parse error, it is skipped and a warning is printed
 - If a uses section contains preprocessor directives (`{$...}`) or comment nodes at the same level as unit names, it's treated as unsupported and skipped with a warning
 
+### Inline Suppression Directives
+
+You can disable `dfixxer` for a region with standalone comment directives:
+
+```pascal
+// dfixxer:off
+...
+// dfixxer:on
+```
+
+Equivalent standalone aliases are also supported:
+
+```pascal
+{ dfixxer:off }
+...
+{ dfixxer:on }
+```
+
+```pascal
+(* dfixxer:off *)
+...
+(* dfixxer:on *)
+```
+
+Notes:
+- Directives must appear in a standalone single-line comment.
+- The directive comment lines themselves are preserved verbatim.
+- Raw `# dfixxer off` and compiler-directive forms such as `{$DFIXXER OFF}` are not supported.
+
 ### Examples
 
 #### Update a file using auto-discovered or default config
@@ -448,6 +477,7 @@ module_names_to_update = [
 
 - **Parse errors**: Sections with syntax errors are skipped (warning printed)
 - **Unsupported constructs**: Sections containing preprocessor directives (`{$...}`) or comments at the same level as unit names are skipped (warning printed)
+- **Inline suppression directives**: `dfixxer:off` / `dfixxer:on` must be standalone single-line comments; inline trailing comments are ignored with a warning
 
 ## License
 

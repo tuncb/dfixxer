@@ -18,7 +18,9 @@ use replacements::{
 };
 mod parser;
 use parser::{parse, parse_with_contexts};
+mod suppression;
 
+use crate::suppression::collect_suppression_context;
 use crate::transform_inherited_calls::transform_inherited_calls;
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
@@ -108,6 +110,14 @@ fn process_file(
 
     // Time file loading
     let source = timing.time_operation_result("File loading", || load_file(filename))?;
+    let suppression_context = timing.time_operation("Inline suppression scan", || {
+        collect_suppression_context(&source)
+    });
+    for warning in &suppression_context.warnings {
+        let message = format!("{}:{}: {}", filename, warning.line, warning.message());
+        log::warn!("{}", message);
+        eprintln!("Warning: {}", message);
+    }
 
     // Time parsing
     let (parse_result, spacing_context, inherited_expansion_context) =
@@ -181,12 +191,19 @@ fn process_file(
 
         replacements
     });
+    replacements.retain(|replacement| {
+        !suppression_context.suppresses_replacement(replacement.start, replacement.end)
+    });
 
     // Apply text transformations if enabled
     if options.transformations.enable_text_transformations {
         timing.time_operation("Text transformations", || {
             // Calculate sections (gaps + existing replacements)
-            let sections = compute_source_sections(&source, &replacements);
+            let sections = compute_source_sections(
+                &source,
+                &replacements,
+                &suppression_context.text_exclusion_ranges(),
+            );
 
             // Apply text transformation to each section and add to replacements if there's a change
             for section in sections {
@@ -203,6 +220,9 @@ fn process_file(
             }
         });
     }
+    replacements.retain(|replacement| {
+        !suppression_context.suppresses_replacement(replacement.start, replacement.end)
+    });
 
     Ok((source, replacements))
 }

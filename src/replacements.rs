@@ -17,29 +17,33 @@ pub struct SourceSection {
 pub fn compute_source_sections(
     original_source: &str,
     replacements: &[TextReplacement],
+    excluded_ranges: &[(usize, usize)],
 ) -> Vec<SourceSection> {
-    if replacements.is_empty() {
+    if replacements.is_empty() && excluded_ranges.is_empty() {
         return vec![SourceSection {
             start: 0,
             end: original_source.len(),
         }];
     }
 
-    // Collect indices and sort (without mutating caller slice)
-    let mut order: Vec<_> = replacements.iter().collect();
-    order.sort_by_key(|r| r.start);
+    let mut occupied_ranges: Vec<(usize, usize)> = replacements
+        .iter()
+        .map(|replacement| (replacement.start, replacement.end))
+        .collect();
+    occupied_ranges.extend_from_slice(excluded_ranges);
+    occupied_ranges.sort_unstable_by_key(|(start, end)| (*start, *end));
 
     let mut sections: Vec<SourceSection> = Vec::new();
     let mut last_end = 0usize;
 
-    for r in order {
-        if last_end < r.start {
+    for (start, end) in occupied_ranges {
+        if last_end < start {
             sections.push(SourceSection {
                 start: last_end,
-                end: r.start,
+                end: start,
             });
         }
-        last_end = r.end;
+        last_end = last_end.max(end);
     }
 
     if last_end < original_source.len() {
@@ -109,7 +113,7 @@ mod tests {
             end: 12,
             text: "Rust".to_string(),
         }];
-        let result = compute_source_sections(source, &replacements);
+        let result = compute_source_sections(source, &replacements, &[]);
         assert_eq!(
             result,
             vec![
@@ -134,7 +138,7 @@ mod tests {
                 text: "green".to_string(),
             },
         ];
-        let result = compute_source_sections(source, &replacements);
+        let result = compute_source_sections(source, &replacements, &[]);
         assert_eq!(
             result,
             vec![
@@ -163,7 +167,7 @@ mod tests {
                 text: "YY".to_string(),
             },
         ];
-        let result = compute_source_sections(source, &replacements);
+        let result = compute_source_sections(source, &replacements, &[]);
         assert_eq!(
             result,
             vec![
@@ -181,8 +185,49 @@ mod tests {
             end: source.len(),
             text: "replaced".to_string(),
         }];
-        let result = compute_source_sections(source, &replacements);
+        let result = compute_source_sections(source, &replacements, &[]);
         assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_fill_gaps_with_excluded_ranges() {
+        let source = "abcdefghij";
+        let replacements = vec![TextReplacement {
+            start: 2,
+            end: 4,
+            text: "XX".to_string(),
+        }];
+        let excluded_ranges = vec![(6, 8)];
+
+        let result = compute_source_sections(source, &replacements, &excluded_ranges);
+        assert_eq!(
+            result,
+            vec![
+                SourceSection { start: 0, end: 2 },
+                SourceSection { start: 4, end: 6 },
+                SourceSection { start: 8, end: 10 },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_fill_gaps_handles_zero_length_replacement_and_exclusion_same_start() {
+        let source = "abcdefghij";
+        let replacements = vec![TextReplacement {
+            start: 4,
+            end: 4,
+            text: "()".to_string(),
+        }];
+        let excluded_ranges = vec![(4, 6)];
+
+        let result = compute_source_sections(source, &replacements, &excluded_ranges);
+        assert_eq!(
+            result,
+            vec![
+                SourceSection { start: 0, end: 4 },
+                SourceSection { start: 6, end: 10 },
+            ]
+        );
     }
 
     #[test]
