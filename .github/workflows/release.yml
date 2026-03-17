@@ -10,7 +10,7 @@ env:
 
 jobs:
   build:
-    name: Build for ${{ matrix.os }}
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -25,10 +25,15 @@ jobs:
             binary_name: dfixxer
             archive_name: dfixxer-linux-x86_64
             archive_ext: tar.gz
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             binary_name: dfixxer
             archive_name: dfixxer-macos-x86_64
+            archive_ext: tar.gz
+          - os: macos-15
+            target: aarch64-apple-darwin
+            binary_name: dfixxer
+            archive_name: dfixxer-macos-arm64
             archive_ext: tar.gz
 
     steps:
@@ -56,7 +61,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
@@ -127,3 +132,4 @@ jobs:
             ./artifacts/dfixxer-windows-x86_64-${{ steps.tag.outputs.tag_name }}.zip/dfixxer-windows-x86_64-${{ steps.tag.outputs.tag_name }}.zip
             ./artifacts/dfixxer-linux-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz/dfixxer-linux-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz
             ./artifacts/dfixxer-macos-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz/dfixxer-macos-x86_64-${{ steps.tag.outputs.tag_name }}.tar.gz
+            ./artifacts/dfixxer-macos-arm64-${{ steps.tag.outputs.tag_name }}.tar.gz/dfixxer-macos-arm64-${{ steps.tag.outputs.tag_name }}.tar.gz
