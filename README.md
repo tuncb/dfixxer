@@ -2,6 +2,20 @@
 
 A command-line tool that reformats Delphi/Pascal files.
 
+## What dfixxer can fix
+
+- Sorts and normalizes `uses` sections, including namespace-priority ordering and optional unit alias expansion from config
+- Normalizes `unit` and `program` headers
+- Normalizes single-keyword sections such as `interface`, `implementation`, `initialization`, and `finalization`
+- Reformats routine declarations, including `procedure`, `function`, `constructor`, `destructor`, and `operator`
+- Expands bare `inherited` calls to explicit inherited routine calls when the target can be resolved
+- Normalizes spacing and casing in general source text, including commas, operators, generics, comments, and keywords
+- Fixes spacing between local routine declarations
+- Fixes indentation of local routine blocks
+- Trims trailing whitespace
+
+Exact behavior is configurable through `dfixxer.toml`, and individual transformation groups can be turned on or off.
+
 ## Install / build
 
 Requires Rust (stable).
