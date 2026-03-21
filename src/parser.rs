@@ -99,6 +99,19 @@ pub struct InheritedExpansionContext {
     pub candidates: Vec<InheritedExpansionCandidate>,
 }
 
+/// A whitespace-only gap that should contain exactly one empty line around local routines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalRoutineSpacingGap {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Collected context for blank-line normalization around implemented local routines.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalRoutineSpacingContext {
+    pub gaps: Vec<LocalRoutineSpacingGap>,
+}
+
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
     let mut parser = Parser::new();
     parser
@@ -528,6 +541,215 @@ fn collect_inherited_expansion_context(
     }
 }
 
+fn is_attachable_local_routine_sibling(node: Node) -> bool {
+    matches!(node.kind(), "comment" | "pp")
+}
+
+fn is_outer_routine_body(node: Node) -> bool {
+    matches!(node.kind(), "block" | "asm")
+}
+
+fn is_unprocessed_local_declproc(node: Node) -> bool {
+    node.kind() == "declProc"
+}
+
+fn classify_pp_attachment(node: Node, source: &str) -> bool {
+    let text = source[node.start_byte()..node.end_byte()]
+        .trim()
+        .to_ascii_uppercase();
+    text.starts_with("{$ENDIF") || text.starts_with("{$IFEND")
+}
+
+fn find_attachable_local_routine_neighbor(
+    children: &[Node],
+    start_idx: usize,
+    local_start_idx: usize,
+    body_idx: usize,
+    step: isize,
+) -> Option<usize> {
+    let mut current = start_idx as isize + step;
+    while current >= local_start_idx as isize && current < body_idx as isize {
+        let child = children[current as usize];
+        if child.kind() == "defProc" {
+            return Some(current as usize);
+        }
+        if is_attachable_local_routine_sibling(child) {
+            current += step;
+            continue;
+        }
+        return None;
+    }
+    None
+}
+
+fn assigned_local_routine_anchor(
+    idx: usize,
+    children: &[Node],
+    local_start_idx: usize,
+    body_idx: usize,
+    source: &str,
+) -> Option<usize> {
+    let node = children[idx];
+    let left = find_attachable_local_routine_neighbor(children, idx, local_start_idx, body_idx, -1);
+    let right = find_attachable_local_routine_neighbor(children, idx, local_start_idx, body_idx, 1);
+
+    match (left, right) {
+        (Some(anchor_idx), None) | (None, Some(anchor_idx)) => Some(anchor_idx),
+        (Some(left_idx), Some(right_idx)) => match node.kind() {
+            "comment" => Some(right_idx),
+            "pp" => {
+                if classify_pp_attachment(node, source) {
+                    Some(left_idx)
+                } else {
+                    Some(right_idx)
+                }
+            }
+            _ => None,
+        },
+        (None, None) => None,
+    }
+}
+
+fn push_local_routine_spacing_gap(
+    gaps: &mut Vec<LocalRoutineSpacingGap>,
+    start: usize,
+    end: usize,
+    source: &str,
+) {
+    if start >= end {
+        return;
+    }
+    if !source[start..end].chars().all(char::is_whitespace) {
+        return;
+    }
+    gaps.push(LocalRoutineSpacingGap { start, end });
+}
+
+fn collect_local_routine_spacing_from_defproc(
+    defproc_node: Node,
+    source: &str,
+    context: &mut LocalRoutineSpacingContext,
+) {
+    let mut children = Vec::new();
+    for i in 0..defproc_node.child_count() {
+        if let Some(child) = defproc_node.child(i) {
+            children.push(child);
+        }
+    }
+
+    let header_idx = children.iter().position(|child| child.kind() == "declProc");
+    let body_idx = children
+        .iter()
+        .position(|child| is_outer_routine_body(*child));
+    let (Some(header_idx), Some(body_idx)) = (header_idx, body_idx) else {
+        return;
+    };
+    if body_idx <= header_idx + 1 {
+        return;
+    }
+
+    let local_start_idx = header_idx + 1;
+    if children[local_start_idx..body_idx]
+        .iter()
+        .any(|child| child.has_error())
+    {
+        return;
+    }
+
+    let anchor_indices: Vec<usize> = (local_start_idx..body_idx)
+        .filter(|idx| children[*idx].kind() == "defProc")
+        .collect();
+    if anchor_indices.is_empty() {
+        return;
+    }
+
+    let mut block_ranges: Vec<(usize, usize)> = anchor_indices
+        .iter()
+        .copied()
+        .map(|idx| (idx, idx))
+        .collect();
+
+    for idx in local_start_idx..body_idx {
+        let child = children[idx];
+        if !is_attachable_local_routine_sibling(child) {
+            continue;
+        }
+
+        let Some(anchor_idx) =
+            assigned_local_routine_anchor(idx, &children, local_start_idx, body_idx, source)
+        else {
+            continue;
+        };
+        if let Some(block_range) = block_ranges
+            .iter_mut()
+            .find(|(start_idx, end_idx)| anchor_idx >= *start_idx && anchor_idx <= *end_idx)
+        {
+            block_range.0 = block_range.0.min(idx);
+            block_range.1 = block_range.1.max(idx);
+        }
+    }
+
+    block_ranges.sort_unstable_by_key(|(start_idx, _)| *start_idx);
+
+    let mut gaps = Vec::new();
+    for (start_idx, end_idx) in block_ranges {
+        let previous_idx = if start_idx > local_start_idx {
+            Some(start_idx - 1)
+        } else {
+            None
+        };
+        let previous_boundary = previous_idx.unwrap_or(header_idx);
+        if previous_boundary == header_idx
+            || !is_unprocessed_local_declproc(children[previous_boundary])
+        {
+            push_local_routine_spacing_gap(
+                &mut gaps,
+                children[previous_boundary].end_byte(),
+                children[start_idx].start_byte(),
+                source,
+            );
+        }
+
+        let next_boundary_idx = if end_idx + 1 < body_idx {
+            Some(end_idx + 1)
+        } else {
+            None
+        };
+        let next_boundary = next_boundary_idx.unwrap_or(body_idx);
+        if next_boundary == body_idx || !is_unprocessed_local_declproc(children[next_boundary]) {
+            push_local_routine_spacing_gap(
+                &mut gaps,
+                children[end_idx].end_byte(),
+                children[next_boundary].start_byte(),
+                source,
+            );
+        }
+    }
+
+    context.gaps.extend(gaps);
+}
+
+fn normalize_local_routine_spacing_gaps(gaps: &mut Vec<LocalRoutineSpacingGap>) {
+    gaps.sort_unstable_by_key(|gap| (gap.start, gap.end));
+    gaps.dedup_by(|a, b| a.start == b.start && a.end == b.end);
+}
+
+fn collect_local_routine_spacing_context(
+    node: Node,
+    source: &str,
+    context: &mut LocalRoutineSpacingContext,
+) {
+    if node.kind() == "defProc" {
+        collect_local_routine_spacing_from_defproc(node, source, context);
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_local_routine_spacing_context(child, source, context);
+        }
+    }
+}
+
 /// Generic transform function for kUses, kProgram, and kUnit nodes into a CodeSection
 fn transform_keyword_to_code_section(
     keyword_node: Node,
@@ -707,7 +929,15 @@ pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
 /// Parse source code and collect parser contexts needed by transformations.
 pub fn parse_with_contexts(
     source: &str,
-) -> Result<(ParseResult, SpacingContext, InheritedExpansionContext), DFixxerError> {
+) -> Result<
+    (
+        ParseResult,
+        SpacingContext,
+        InheritedExpansionContext,
+        LocalRoutineSpacingContext,
+    ),
+    DFixxerError,
+> {
     let tree = parse_to_tree(source)?;
     let mut code_sections = Vec::new();
     traverse_and_parse(tree.root_node(), &mut code_sections);
@@ -720,10 +950,19 @@ pub fn parse_with_contexts(
     let mut inherited_expansion_context = InheritedExpansionContext::default();
     collect_inherited_expansion_context(tree.root_node(), source, &mut inherited_expansion_context);
 
+    let mut local_routine_spacing_context = LocalRoutineSpacingContext::default();
+    collect_local_routine_spacing_context(
+        tree.root_node(),
+        source,
+        &mut local_routine_spacing_context,
+    );
+    normalize_local_routine_spacing_gaps(&mut local_routine_spacing_context.gaps);
+
     Ok((
         ParseResult { code_sections },
         spacing_context,
         inherited_expansion_context,
+        local_routine_spacing_context,
     ))
 }
 
@@ -732,7 +971,7 @@ pub fn parse_with_contexts(
 pub fn parse_with_spacing_context(
     source: &str,
 ) -> Result<(ParseResult, SpacingContext), DFixxerError> {
-    let (parse_result, spacing_context, _) = parse_with_contexts(source)?;
+    let (parse_result, spacing_context, _, _) = parse_with_contexts(source)?;
     Ok((parse_result, spacing_context))
 }
 
@@ -1163,7 +1402,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -1201,7 +1440,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -1242,7 +1481,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -1276,7 +1515,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
         assert!(
             inherited_context.candidates.is_empty(),
             "Only bare inherited statements should produce expansion candidates"
@@ -1311,7 +1550,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(
             inherited_context.candidates.len(),
             1,
@@ -1321,6 +1560,102 @@ end."#;
         assert_eq!(
             inherited_context.candidates[0].arg_names,
             vec!["AName".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_local_routine_spacing_gaps() {
+        let source = r#"procedure Outer;
+var
+  X: Integer;
+procedure Inner;
+begin
+end;
+begin
+end;"#;
+
+        let (_, _, _, local_routine_context) =
+            parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(
+            local_routine_context.gaps.len(),
+            2,
+            "Should collect one gap before and one after the implemented local routine"
+        );
+
+        let first_gap = &local_routine_context.gaps[0];
+        let second_gap = &local_routine_context.gaps[1];
+        assert_eq!(&source[first_gap.start..first_gap.end], "\n");
+        assert_eq!(&source[second_gap.start..second_gap.end], "\n");
+    }
+
+    #[test]
+    fn test_parse_with_contexts_attaches_comments_and_pp_to_local_routine_gaps() {
+        let source = r#"procedure Outer;
+// helper
+{$IFDEF DEBUG}
+procedure Inner;
+begin
+end;
+{$ENDIF}
+begin
+end;"#;
+
+        let (_, _, _, local_routine_context) =
+            parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(local_routine_context.gaps.len(), 2);
+
+        let first_gap = &local_routine_context.gaps[0];
+        let second_gap = &local_routine_context.gaps[1];
+        assert_eq!(&source[first_gap.start..first_gap.end], "\n");
+        assert_eq!(&source[second_gap.start..second_gap.end], "\n");
+    }
+
+    #[test]
+    fn test_parse_with_contexts_skips_gap_before_implemented_local_when_forward_precedes_it() {
+        let source = r#"procedure Outer;
+procedure ForwardDecl; forward;
+procedure Inner;
+begin
+end;
+begin
+end;"#;
+
+        let (_, _, _, local_routine_context) =
+            parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(
+            local_routine_context.gaps.len(),
+            1,
+            "Gap adjacent to the forward declaration should be skipped"
+        );
+
+        let only_gap = &local_routine_context.gaps[0];
+        let inner_end = source
+            .find("end;\nbegin")
+            .expect("implemented local routine should exist")
+            + "end;".len();
+        assert_eq!(only_gap.start, inner_end);
+        assert_eq!(&source[only_gap.start..only_gap.end], "\n");
+    }
+
+    #[test]
+    fn test_parse_with_contexts_skips_local_routine_spacing_for_errored_local_area() {
+        let source = r#"procedure Outer;
+procedure Broken(
+procedure Inner;
+begin
+end;
+begin
+end;"#;
+
+        let (_, _, _, local_routine_context) =
+            parse_with_contexts(source).expect("Failed to parse");
+
+        assert!(
+            local_routine_context.gaps.is_empty(),
+            "Errored local-definition areas should be skipped"
         );
     }
 }
