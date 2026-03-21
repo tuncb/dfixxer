@@ -106,10 +106,20 @@ pub struct LocalRoutineSpacingGap {
     pub end: usize,
 }
 
-/// Collected context for blank-line normalization around implemented local routines.
+/// A local routine block, including attached comment / preprocessor siblings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalRoutineBlock {
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub anchor_start_byte: usize,
+    pub owner_header_start_byte: usize,
+}
+
+/// Collected context for structural formatting around implemented local routines.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LocalRoutineSpacingContext {
     pub gaps: Vec<LocalRoutineSpacingGap>,
+    pub blocks: Vec<LocalRoutineBlock>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -663,10 +673,10 @@ fn collect_local_routine_spacing_from_defproc(
         return;
     }
 
-    let mut block_ranges: Vec<(usize, usize)> = anchor_indices
+    let mut block_ranges: Vec<(usize, usize, usize)> = anchor_indices
         .iter()
         .copied()
-        .map(|idx| (idx, idx))
+        .map(|idx| (idx, idx, idx))
         .collect();
 
     for idx in local_start_idx..body_idx {
@@ -682,17 +692,18 @@ fn collect_local_routine_spacing_from_defproc(
         };
         if let Some(block_range) = block_ranges
             .iter_mut()
-            .find(|(start_idx, end_idx)| anchor_idx >= *start_idx && anchor_idx <= *end_idx)
+            .find(|(_, _, existing_anchor_idx)| anchor_idx == *existing_anchor_idx)
         {
             block_range.0 = block_range.0.min(idx);
             block_range.1 = block_range.1.max(idx);
         }
     }
 
-    block_ranges.sort_unstable_by_key(|(start_idx, _)| *start_idx);
+    block_ranges.sort_unstable_by_key(|(start_idx, _, _)| *start_idx);
 
     let mut gaps = Vec::new();
-    for (start_idx, end_idx) in block_ranges {
+    let mut blocks = Vec::new();
+    for (start_idx, end_idx, anchor_idx) in block_ranges {
         let previous_idx = if start_idx > local_start_idx {
             Some(start_idx - 1)
         } else {
@@ -724,14 +735,33 @@ fn collect_local_routine_spacing_from_defproc(
                 source,
             );
         }
+
+        blocks.push(LocalRoutineBlock {
+            start_byte: children[start_idx].start_byte(),
+            end_byte: children[end_idx].end_byte(),
+            anchor_start_byte: children[anchor_idx].start_byte(),
+            owner_header_start_byte: children[header_idx].start_byte(),
+        });
     }
 
     context.gaps.extend(gaps);
+    context.blocks.extend(blocks);
 }
 
-fn normalize_local_routine_spacing_gaps(gaps: &mut Vec<LocalRoutineSpacingGap>) {
+fn normalize_local_routine_spacing_context(context: &mut LocalRoutineSpacingContext) {
+    let gaps = &mut context.gaps;
     gaps.sort_unstable_by_key(|gap| (gap.start, gap.end));
     gaps.dedup_by(|a, b| a.start == b.start && a.end == b.end);
+
+    let blocks = &mut context.blocks;
+    blocks
+        .sort_unstable_by_key(|block| (block.start_byte, block.end_byte, block.anchor_start_byte));
+    blocks.dedup_by(|a, b| {
+        a.start_byte == b.start_byte
+            && a.end_byte == b.end_byte
+            && a.anchor_start_byte == b.anchor_start_byte
+            && a.owner_header_start_byte == b.owner_header_start_byte
+    });
 }
 
 fn collect_local_routine_spacing_context(
@@ -956,7 +986,7 @@ pub fn parse_with_contexts(
         source,
         &mut local_routine_spacing_context,
     );
-    normalize_local_routine_spacing_gaps(&mut local_routine_spacing_context.gaps);
+    normalize_local_routine_spacing_context(&mut local_routine_spacing_context);
 
     Ok((
         ParseResult { code_sections },
@@ -1582,11 +1612,17 @@ end;"#;
             2,
             "Should collect one gap before and one after the implemented local routine"
         );
+        assert_eq!(local_routine_context.blocks.len(), 1);
 
         let first_gap = &local_routine_context.gaps[0];
         let second_gap = &local_routine_context.gaps[1];
         assert_eq!(&source[first_gap.start..first_gap.end], "\n");
         assert_eq!(&source[second_gap.start..second_gap.end], "\n");
+        let block = &local_routine_context.blocks[0];
+        assert_eq!(
+            &source[block.start_byte..block.end_byte],
+            "procedure Inner;\nbegin\nend;"
+        );
     }
 
     #[test]
@@ -1605,11 +1641,17 @@ end;"#;
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(local_routine_context.gaps.len(), 2);
+        assert_eq!(local_routine_context.blocks.len(), 1);
 
         let first_gap = &local_routine_context.gaps[0];
         let second_gap = &local_routine_context.gaps[1];
         assert_eq!(&source[first_gap.start..first_gap.end], "\n");
         assert_eq!(&source[second_gap.start..second_gap.end], "\n");
+        let block = &local_routine_context.blocks[0];
+        assert_eq!(
+            &source[block.start_byte..block.end_byte],
+            "// helper\n{$IFDEF DEBUG}\nprocedure Inner;\nbegin\nend;\n{$ENDIF}"
+        );
     }
 
     #[test]
@@ -1630,6 +1672,7 @@ end;"#;
             1,
             "Gap adjacent to the forward declaration should be skipped"
         );
+        assert_eq!(local_routine_context.blocks.len(), 1);
 
         let only_gap = &local_routine_context.gaps[0];
         let inner_end = source
@@ -1656,6 +1699,10 @@ end;"#;
         assert!(
             local_routine_context.gaps.is_empty(),
             "Errored local-definition areas should be skipped"
+        );
+        assert!(
+            local_routine_context.blocks.is_empty(),
+            "Errored local-definition areas should not produce local routine blocks"
         );
     }
 }

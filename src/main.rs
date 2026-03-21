@@ -7,6 +7,7 @@ mod options;
 use options::{Options, find_custom_config_for_file, should_exclude_file};
 mod replacements;
 mod transform_inherited_calls;
+mod transform_local_routine_indentation;
 mod transform_local_routine_spacing;
 mod transform_procedure_section;
 mod transform_single_keyword_sections;
@@ -23,6 +24,7 @@ mod suppression;
 
 use crate::suppression::collect_suppression_context;
 use crate::transform_inherited_calls::transform_inherited_calls;
+use crate::transform_local_routine_indentation::transform_local_routine_indentation;
 use crate::transform_local_routine_spacing::transform_local_routine_spacing;
 use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
@@ -189,6 +191,15 @@ fn process_file(
                 .into_iter()
                 .filter_map(apply_text_transformation_if_enabled);
             replacements.extend(inherited_replacements);
+        }
+
+        if options.transformations.enable_local_routine_indentation {
+            let local_routine_replacements = transform_local_routine_indentation(
+                &source,
+                &local_routine_spacing_context,
+                &options,
+            );
+            replacements.extend(local_routine_replacements);
         }
 
         if options.transformations.enable_local_routine_spacing {

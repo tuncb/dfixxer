@@ -70,6 +70,7 @@ mod tests {
                     end: body_start,
                 },
             ],
+            blocks: Vec::new(),
         };
 
         let replacements = transform_local_routine_spacing(source, &context, &make_options());
@@ -86,6 +87,7 @@ mod tests {
                 start: "procedure Outer;".len(),
                 end: source.find("procedure Inner;").unwrap(),
             }],
+            blocks: Vec::new(),
         };
 
         let replacements = transform_local_routine_spacing(source, &context, &make_options());
@@ -101,6 +103,7 @@ mod tests {
                 start: "procedure Outer;".len(),
                 end: source.find("procedure Inner;").unwrap(),
             }],
+            blocks: Vec::new(),
         };
 
         let replacements = transform_local_routine_spacing(source, &context, &make_options());

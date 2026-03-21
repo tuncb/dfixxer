@@ -249,7 +249,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
 ### Configuration Options
 
 #### `indentation` (string)
-- **Purpose**: Indentation used for uses section lines
+- **Purpose**: Indentation used for generated section formatting and local routine indentation
 - **Default**: `"  "` (two spaces)
 - **Examples**:
   - `"    "` (four spaces)
@@ -310,6 +310,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `enable_single_keyword_sections` (boolean) - Enable single keyword section processing (default: `true`)
   - `enable_procedure_section` (boolean) - Enable procedure section processing (default: `true`)
   - `enable_local_routine_spacing` (boolean) - Ensure implemented local routines have one empty line before and after them, while keeping attached comments / clean `{$IF...}` wrappers with the routine block (default: `true`)
+  - `enable_local_routine_indentation` (boolean) - Indent implemented local routine blocks by one configured indentation level relative to their owning routine, including attached comments / clean `{$IF...}` wrappers (default: `true`)
   - `enable_inherited_call_expansion` (boolean) - Expand bare `inherited;` to an explicit inherited call using the current routine name/arguments (default: `true`)
   - `enable_text_transformations` (boolean) - Enable text formatting transformations (default: `true`)
 
@@ -397,6 +398,7 @@ enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
 enable_local_routine_spacing = true
+enable_local_routine_indentation = true
 enable_inherited_call_expansion = true
 enable_text_transformations = true
 
