@@ -1,5 +1,0 @@
-custom_config_patterns = [["sub/*.pas", "custom.toml"]]
-
-[uses_section]
-uses_section_style = "CommaAtTheEnd"
-module_names_to_update = []
