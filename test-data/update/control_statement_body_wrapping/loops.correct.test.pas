@@ -44,5 +44,7 @@ begin
   for I := 1 to 3 do
     ;
   for I := 1 to 3 do
+  begin
     Foo(I); // tail
+  end;
 end.

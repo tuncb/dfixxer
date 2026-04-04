@@ -1,5 +1,7 @@
 use crate::options::Options;
-use crate::parser::{ControlStatementBodyCandidate, ControlStatementBodyWrappingContext};
+use crate::parser::{
+    ControlStatementBodyCandidate, ControlStatementBodyWrappingContext, ControlStatementClosingKind,
+};
 use crate::replacements::TextReplacement;
 use crate::transformer_utility::{create_text_replacement_if_different, find_line_start};
 
@@ -55,16 +57,33 @@ fn begin_replacement(
     )
 }
 
-fn end_replacement(
+fn tail_replacement(
     source: &str,
     candidate: &ControlStatementBodyCandidate,
     options: &Options,
 ) -> TextReplacement {
     let owner_indent = owner_indent(source, candidate);
+    let closing_text = match candidate.closing_kind {
+        ControlStatementClosingKind::End => "end",
+        ControlStatementClosingKind::EndSemicolon => "end;",
+    };
+    let mut text = String::new();
+    if candidate.insert_body_semicolon {
+        text.push(';');
+    }
+    text.push_str(&source[candidate.body_end_byte..candidate.body_suffix_end_byte]);
+    text.push_str(&format!(
+        "{}{}{}",
+        options.line_ending, owner_indent, closing_text
+    ));
+    if candidate.tail_end_byte > candidate.body_suffix_end_byte {
+        text.push_str(&format!("{}{}", options.line_ending, owner_indent));
+    }
+
     TextReplacement {
         start: candidate.body_end_byte,
-        end: candidate.body_end_byte,
-        text: format!("{}{}end;", options.line_ending, owner_indent),
+        end: candidate.tail_end_byte,
+        text,
     }
 }
 
@@ -78,19 +97,32 @@ pub fn transform_control_statement_body_wrapping(
 
     for candidate in &context.candidates {
         if let Some(replacement) = begin_replacement(source, candidate, options) {
-            replacements.push(replacement);
+            replacements.push((replacement, candidate.owner_start_byte));
         }
-        replacements.push(end_replacement(source, candidate, options));
+        replacements.push((
+            tail_replacement(source, candidate, options),
+            candidate.owner_start_byte,
+        ));
     }
 
+    replacements.sort_by(|(a, a_owner), (b, b_owner)| {
+        a.start.cmp(&b.start).then_with(|| b_owner.cmp(a_owner))
+    });
+
     replacements
+        .into_iter()
+        .map(|(replacement, _)| replacement)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::options::{LineEnding, Options};
-    use crate::parser::{ControlStatementBodyWrappingContext, ControlStatementKind};
+    use crate::parser::{
+        ControlStatementBodyWrappingContext, ControlStatementClosingKind, ControlStatementKind,
+    };
+    use crate::replacements::apply_replacements_to_string;
 
     fn make_options() -> Options {
         Options {
@@ -121,6 +153,10 @@ mod tests {
             body_prefix_start_byte,
             body_start_byte,
             body_end_byte,
+            body_suffix_end_byte: body_end_byte,
+            tail_end_byte: body_end_byte,
+            closing_kind: ControlStatementClosingKind::EndSemicolon,
+            insert_body_semicolon: false,
         }
     }
 
@@ -170,5 +206,183 @@ mod tests {
         assert_eq!(replacements.len(), 2);
         assert_eq!(replacements[0].text, "\n  begin\n      ");
         assert_eq!(replacements[1].text, "\n  end;");
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_wraps_if_then_with_semicolon_and_else_gap() {
+        let source = "begin\n  if A then Foo\n  else\n    Bar;\nend.";
+        let owner_start_byte = source.find("if A then").unwrap();
+        let separator_start = source.find("then").unwrap();
+        let body_start_byte = source.find("Foo").unwrap();
+        let else_start_byte = source.find("else").unwrap();
+        let candidate = ControlStatementBodyCandidate {
+            kind: ControlStatementKind::IfThen,
+            owner_start_byte,
+            separator_end_byte: separator_start + "then".len(),
+            body_prefix_start_byte: body_start_byte,
+            body_start_byte,
+            body_end_byte: body_start_byte + "Foo".len(),
+            body_suffix_end_byte: body_start_byte + "Foo".len(),
+            tail_end_byte: else_start_byte,
+            closing_kind: ControlStatementClosingKind::End,
+            insert_body_semicolon: true,
+        };
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![candidate],
+        };
+
+        let replacements =
+            transform_control_statement_body_wrapping(source, &context, &make_options());
+
+        assert_eq!(replacements.len(), 2);
+        assert_eq!(replacements[0].text, "\n  begin\n    ");
+        assert_eq!(replacements[1].text, ";\n  end\n  ");
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_absorbs_comments_between_then_and_else() {
+        let source = "begin\n  if A then\n    Foo\n    // note\n  else\n    Bar;\nend.";
+        let owner_start_byte = source.find("if A then").unwrap();
+        let separator_start = source.find("then").unwrap();
+        let body_start_byte = source.find("Foo").unwrap();
+        let body_end_byte = body_start_byte + "Foo".len();
+        let comment_end_byte = source.find("// note").unwrap() + "// note".len();
+        let else_start_byte = source.find("else").unwrap();
+        let candidate = ControlStatementBodyCandidate {
+            kind: ControlStatementKind::IfThen,
+            owner_start_byte,
+            separator_end_byte: separator_start + "then".len(),
+            body_prefix_start_byte: body_start_byte,
+            body_start_byte,
+            body_end_byte,
+            body_suffix_end_byte: comment_end_byte,
+            tail_end_byte: else_start_byte,
+            closing_kind: ControlStatementClosingKind::End,
+            insert_body_semicolon: true,
+        };
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![candidate],
+        };
+
+        let replacements =
+            transform_control_statement_body_wrapping(source, &context, &make_options());
+
+        assert_eq!(replacements.len(), 2);
+        assert_eq!(replacements[1].text, ";\n    // note\n  end\n  ");
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_preserves_same_line_trailing_comment() {
+        let source = "begin\n  if A then Foo; // tail\nend.";
+        let owner_start_byte = source.find("if A then").unwrap();
+        let separator_start = source.find("then").unwrap();
+        let body_start_byte = source.find("Foo;").unwrap();
+        let comment_start_byte = source.find("// tail").unwrap();
+        let comment_end_byte = comment_start_byte + "// tail".len();
+        let candidate = ControlStatementBodyCandidate {
+            kind: ControlStatementKind::IfThen,
+            owner_start_byte,
+            separator_end_byte: separator_start + "then".len(),
+            body_prefix_start_byte: body_start_byte,
+            body_start_byte,
+            body_end_byte: body_start_byte + "Foo;".len(),
+            body_suffix_end_byte: comment_end_byte,
+            tail_end_byte: comment_end_byte,
+            closing_kind: ControlStatementClosingKind::EndSemicolon,
+            insert_body_semicolon: false,
+        };
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![candidate],
+        };
+
+        let replacements =
+            transform_control_statement_body_wrapping(source, &context, &make_options());
+
+        assert_eq!(replacements.len(), 2);
+        assert_eq!(replacements[0].text, "\n  begin\n    ");
+        assert_eq!(replacements[1].text, " // tail\n  end;");
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_orders_nested_tail_insertions_inside_out() {
+        let source = "begin\n  if A then\n    if B then\n      Foo\n    else\n      Bar\n  else\n    Baz;\nend.";
+
+        let outer_owner_start = source.find("if A then").unwrap();
+        let outer_then_start = source.find("then").unwrap() + "then".len();
+        let outer_body_start = source.find("if B then").unwrap();
+        let outer_body_end = source.find("Bar").unwrap() + "Bar".len();
+        let outer_else_start = source.rfind("else").unwrap();
+
+        let inner_owner_start = source.find("if B then").unwrap();
+        let inner_then_start = source[inner_owner_start..]
+            .find("then")
+            .map(|offset| inner_owner_start + offset + "then".len())
+            .unwrap();
+        let inner_then_body_start = source.find("Foo").unwrap();
+        let inner_else_start = source[inner_owner_start..]
+            .find("else")
+            .map(|offset| inner_owner_start + offset)
+            .unwrap();
+        let inner_final_else_start = source.rfind("Bar").unwrap();
+
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![
+                ControlStatementBodyCandidate {
+                    kind: ControlStatementKind::IfThen,
+                    owner_start_byte: outer_owner_start,
+                    separator_end_byte: outer_then_start,
+                    body_prefix_start_byte: outer_body_start,
+                    body_start_byte: outer_body_start,
+                    body_end_byte: outer_body_end,
+                    body_suffix_end_byte: outer_body_end,
+                    tail_end_byte: outer_else_start,
+                    closing_kind: ControlStatementClosingKind::End,
+                    insert_body_semicolon: false,
+                },
+                ControlStatementBodyCandidate {
+                    kind: ControlStatementKind::IfThen,
+                    owner_start_byte: inner_owner_start,
+                    separator_end_byte: inner_then_start,
+                    body_prefix_start_byte: inner_then_body_start,
+                    body_start_byte: inner_then_body_start,
+                    body_end_byte: inner_then_body_start + "Foo".len(),
+                    body_suffix_end_byte: inner_then_body_start + "Foo".len(),
+                    tail_end_byte: inner_else_start,
+                    closing_kind: ControlStatementClosingKind::End,
+                    insert_body_semicolon: true,
+                },
+                ControlStatementBodyCandidate {
+                    kind: ControlStatementKind::Else,
+                    owner_start_byte: inner_owner_start,
+                    separator_end_byte: inner_else_start + "else".len(),
+                    body_prefix_start_byte: inner_final_else_start,
+                    body_start_byte: inner_final_else_start,
+                    body_end_byte: inner_final_else_start + "Bar".len(),
+                    body_suffix_end_byte: inner_final_else_start + "Bar".len(),
+                    tail_end_byte: inner_final_else_start + "Bar".len(),
+                    closing_kind: ControlStatementClosingKind::EndSemicolon,
+                    insert_body_semicolon: true,
+                },
+                ControlStatementBodyCandidate {
+                    kind: ControlStatementKind::Else,
+                    owner_start_byte: outer_owner_start,
+                    separator_end_byte: outer_else_start + "else".len(),
+                    body_prefix_start_byte: source.find("Baz;").unwrap(),
+                    body_start_byte: source.find("Baz;").unwrap(),
+                    body_end_byte: source.find("Baz;").unwrap() + "Baz;".len(),
+                    body_suffix_end_byte: source.find("Baz;").unwrap() + "Baz;".len(),
+                    tail_end_byte: source.find("Baz;").unwrap() + "Baz;".len(),
+                    closing_kind: ControlStatementClosingKind::EndSemicolon,
+                    insert_body_semicolon: false,
+                },
+            ],
+        };
+
+        let replacements =
+            transform_control_statement_body_wrapping(source, &context, &make_options());
+        let result = apply_replacements_to_string(source, &replacements);
+
+        assert!(result.contains("      Foo;\n    end\n    else\n    begin"));
+        assert!(result.contains("      Bar;\n    end;\n  end\n  else"));
     }
 }

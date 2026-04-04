@@ -127,6 +127,15 @@ pub struct LocalRoutineSpacingContext {
 pub enum ControlStatementKind {
     For,
     Foreach,
+    IfThen,
+    Else,
+}
+
+/// Closing tokens emitted for wrapped control-statement bodies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlStatementClosingKind {
+    End,
+    EndSemicolon,
 }
 
 /// Candidate info for wrapping a single-statement control body in `begin` / `end`.
@@ -138,6 +147,10 @@ pub struct ControlStatementBodyCandidate {
     pub body_prefix_start_byte: usize,
     pub body_start_byte: usize,
     pub body_end_byte: usize,
+    pub body_suffix_end_byte: usize,
+    pub tail_end_byte: usize,
+    pub closing_kind: ControlStatementClosingKind,
+    pub insert_body_semicolon: bool,
 }
 
 /// Collected context for control-statement body wrapping transformations.
@@ -804,7 +817,7 @@ fn collect_local_routine_spacing_context(
     }
 }
 
-fn control_statement_kind(node: Node) -> Option<ControlStatementKind> {
+fn loop_control_statement_kind(node: Node) -> Option<ControlStatementKind> {
     match node.kind() {
         "for" => Some(ControlStatementKind::For),
         "foreach" => Some(ControlStatementKind::Foreach),
@@ -812,15 +825,17 @@ fn control_statement_kind(node: Node) -> Option<ControlStatementKind> {
     }
 }
 
-fn control_statement_body_field_name(kind: &ControlStatementKind) -> &'static str {
+fn loop_control_statement_body_field_name(kind: &ControlStatementKind) -> &'static str {
     match kind {
         ControlStatementKind::For | ControlStatementKind::Foreach => "body",
+        ControlStatementKind::IfThen | ControlStatementKind::Else => unreachable!(),
     }
 }
 
-fn control_statement_separator_kind(kind: &ControlStatementKind) -> &'static str {
+fn loop_control_statement_separator_kind(kind: &ControlStatementKind) -> &'static str {
     match kind {
         ControlStatementKind::For | ControlStatementKind::Foreach => "kDo",
+        ControlStatementKind::IfThen | ControlStatementKind::Else => unreachable!(),
     }
 }
 
@@ -856,25 +871,132 @@ fn is_control_statement_skip_keyword(text: &str) -> bool {
         })
 }
 
-fn should_skip_control_statement_body(body_node: Node, source: &str) -> bool {
-    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";" | "raise") {
-        return true;
-    }
-
-    if body_node.kind() != "statement" {
-        return false;
-    }
-
-    let body_text = &source[body_node.start_byte()..body_node.end_byte()];
-    is_control_statement_skip_keyword(body_text)
+fn body_has_explicit_semicolon(body_node: Node) -> bool {
+    (0..body_node.child_count()).any(|idx| {
+        body_node
+            .child(idx)
+            .is_some_and(|child| child.kind() == ";")
+    })
 }
 
-fn collect_control_statement_body_candidate(
+fn body_needs_inserted_semicolon(body_node: Node) -> bool {
+    matches!(body_node.kind(), "statement" | "raise") && !body_has_explicit_semicolon(body_node)
+}
+
+fn has_only_comment_children(children: &[Node]) -> bool {
+    children
+        .iter()
+        .all(|child| !child.has_error() && child.kind() == "comment")
+}
+
+fn trailing_comment_children_after_node<'a>(node: Node<'a>, source: &str) -> Vec<Node<'a>> {
+    let Some(parent) = node.parent() else {
+        return Vec::new();
+    };
+
+    let mut siblings = Vec::new();
+    let mut node_idx = None;
+    for idx in 0..parent.child_count() {
+        if let Some(child) = parent.child(idx) {
+            siblings.push(child);
+            if child == node {
+                node_idx = Some(idx);
+            }
+        }
+    }
+
+    let Some(node_idx) = node_idx else {
+        return Vec::new();
+    };
+
+    let mut attached = Vec::new();
+    let owner_row = node.end_position().row;
+    let mut previous_end = node.end_byte();
+
+    for sibling in siblings.into_iter().skip(node_idx + 1) {
+        if sibling.kind() != "comment" || sibling.start_position().row != owner_row {
+            break;
+        }
+        if !source[previous_end..sibling.start_byte()]
+            .chars()
+            .all(char::is_whitespace)
+        {
+            break;
+        }
+        attached.push(sibling);
+        previous_end = sibling.end_byte();
+    }
+
+    attached
+}
+
+struct ControlStatementBodyShape<'a> {
+    kind: ControlStatementKind,
+    owner_start_byte: usize,
+    separator_end_byte: usize,
+    body_node: Node<'a>,
+    prefix_children: &'a [Node<'a>],
+    suffix_children: &'a [Node<'a>],
+    tail_end_byte: usize,
+    closing_kind: ControlStatementClosingKind,
+}
+
+fn build_control_statement_body_candidate(
+    shape: ControlStatementBodyShape<'_>,
+    source: &str,
+) -> Option<ControlStatementBodyCandidate> {
+    let ControlStatementBodyShape {
+        kind,
+        owner_start_byte,
+        separator_end_byte,
+        body_node,
+        prefix_children,
+        suffix_children,
+        tail_end_byte,
+        closing_kind,
+    } = shape;
+
+    if body_node.has_error() || matches!(body_node.kind(), "asm" | ";") {
+        return None;
+    }
+
+    if !has_only_comment_children(prefix_children) || !has_only_comment_children(suffix_children) {
+        return None;
+    }
+
+    if tail_end_byte == body_node.end_byte()
+        && suffix_children.is_empty()
+        && !is_whitespace_only_until_line_end(source, body_node.end_byte())
+    {
+        return None;
+    }
+
+    Some(ControlStatementBodyCandidate {
+        kind,
+        owner_start_byte,
+        separator_end_byte,
+        body_prefix_start_byte: prefix_children
+            .first()
+            .map(|child| child.start_byte())
+            .unwrap_or_else(|| body_node.start_byte()),
+        body_start_byte: body_node.start_byte(),
+        body_end_byte: body_node.end_byte(),
+        body_suffix_end_byte: suffix_children
+            .last()
+            .map(|child| child.end_byte())
+            .unwrap_or_else(|| body_node.end_byte()),
+        tail_end_byte,
+        closing_kind,
+        insert_body_semicolon: body_needs_inserted_semicolon(body_node),
+    })
+}
+
+fn collect_loop_control_statement_body_candidate(
     node: Node,
     source: &str,
     context: &mut ControlStatementBodyWrappingContext,
 ) {
-    let Some(kind) = control_statement_kind(node) else {
+    let Some(kind) = loop_control_statement_kind(node) else {
         return;
     };
 
@@ -882,11 +1004,18 @@ fn collect_control_statement_body_candidate(
         return;
     }
 
-    let Some(body_node) = node.child_by_field_name(control_statement_body_field_name(&kind)) else {
+    let Some(body_node) = node.child_by_field_name(loop_control_statement_body_field_name(&kind))
+    else {
         return;
     };
-    if should_skip_control_statement_body(body_node, source) {
+    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";" | "raise") {
         return;
+    }
+    if body_node.kind() == "statement" {
+        let body_text = &source[body_node.start_byte()..body_node.end_byte()];
+        if is_control_statement_skip_keyword(body_text) {
+            return;
+        }
     }
 
     let mut children = Vec::new();
@@ -898,7 +1027,7 @@ fn collect_control_statement_body_candidate(
 
     let Some(separator_idx) = children
         .iter()
-        .position(|child| child.kind() == control_statement_separator_kind(&kind))
+        .position(|child| child.kind() == loop_control_statement_separator_kind(&kind))
     else {
         return;
     };
@@ -910,39 +1039,246 @@ fn collect_control_statement_body_candidate(
     }
 
     let prefix_children = &children[separator_idx + 1..body_idx];
-    if prefix_children.iter().any(|child| child.has_error()) {
+    let trailing_comment_children = trailing_comment_children_after_node(node, source);
+    let Some(candidate) = build_control_statement_body_candidate(
+        ControlStatementBodyShape {
+            kind,
+            owner_start_byte: node.start_byte(),
+            separator_end_byte: children[separator_idx].end_byte(),
+            body_node,
+            prefix_children,
+            suffix_children: &trailing_comment_children,
+            tail_end_byte: trailing_comment_children
+                .last()
+                .map(|child| child.end_byte())
+                .unwrap_or_else(|| body_node.end_byte()),
+            closing_kind: ControlStatementClosingKind::EndSemicolon,
+        },
+        source,
+    ) else {
+        return;
+    };
+
+    context.candidates.push(candidate);
+}
+
+fn is_else_child_of_if_chain(node: Node) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "ifElse"
+            && parent
+                .child_by_field_name("else")
+                .is_some_and(|else_child| else_child == node)
+    })
+}
+
+enum ControlStatementBranchCandidateState {
+    AlreadyWrapped,
+    Candidate(ControlStatementBodyCandidate),
+    Unsafe,
+}
+
+fn collect_if_branch_candidate(
+    shape: ControlStatementBodyShape<'_>,
+    source: &str,
+) -> ControlStatementBranchCandidateState {
+    if shape.body_node.kind() == "block" {
+        return ControlStatementBranchCandidateState::AlreadyWrapped;
+    }
+
+    build_control_statement_body_candidate(shape, source)
+        .map(ControlStatementBranchCandidateState::Candidate)
+        .unwrap_or(ControlStatementBranchCandidateState::Unsafe)
+}
+
+fn collect_standalone_if_body_candidate(
+    node: Node,
+    source: &str,
+    context: &mut ControlStatementBodyWrappingContext,
+) {
+    if node.kind() != "if" || node.has_error() || is_else_child_of_if_chain(node) {
         return;
     }
-    if prefix_children
-        .iter()
-        .any(|child| matches!(child.kind(), "pp" | "block" | "asm"))
+
+    let Some(body_node) = node.child_by_field_name("then") else {
+        return;
+    };
+    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";" | "raise") {
+        return;
+    }
+    if body_node.kind() == "statement" {
+        let body_text = &source[body_node.start_byte()..body_node.end_byte()];
+        if is_control_statement_skip_keyword(body_text) {
+            return;
+        }
+    }
+
+    let mut children = Vec::new();
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            children.push(child);
+        }
+    }
+
+    let Some(separator_idx) = children.iter().position(|child| child.kind() == "kThen") else {
+        return;
+    };
+    let Some(body_idx) = children.iter().position(|child| *child == body_node) else {
+        return;
+    };
+    if body_idx <= separator_idx {
+        return;
+    }
+
+    let trailing_comment_children = trailing_comment_children_after_node(node, source);
+    let ControlStatementBranchCandidateState::Candidate(candidate) = collect_if_branch_candidate(
+        ControlStatementBodyShape {
+            kind: ControlStatementKind::IfThen,
+            owner_start_byte: node.start_byte(),
+            separator_end_byte: children[separator_idx].end_byte(),
+            body_node,
+            prefix_children: &children[separator_idx + 1..body_idx],
+            suffix_children: &trailing_comment_children,
+            tail_end_byte: trailing_comment_children
+                .last()
+                .map(|child| child.end_byte())
+                .unwrap_or_else(|| body_node.end_byte()),
+            closing_kind: ControlStatementClosingKind::EndSemicolon,
+        },
+        source,
+    ) else {
+        return;
+    };
+
+    context.candidates.push(candidate);
+}
+
+fn collect_if_chain_candidates_from_node(
+    node: Node,
+    owner_start_byte: usize,
+    source: &str,
+    candidates: &mut Vec<ControlStatementBodyCandidate>,
+) -> bool {
+    if node.has_error() {
+        return false;
+    }
+
+    let mut children = Vec::new();
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            children.push(child);
+        }
+    }
+
+    let Some(then_body_node) = node.child_by_field_name("then") else {
+        return false;
+    };
+    let Some(then_idx) = children.iter().position(|child| *child == then_body_node) else {
+        return false;
+    };
+    let Some(then_separator_idx) = children.iter().position(|child| child.kind() == "kThen") else {
+        return false;
+    };
+    if then_idx <= then_separator_idx {
+        return false;
+    }
+
+    let maybe_else_idx = children.iter().position(|child| child.kind() == "kElse");
+    let then_suffix_children = maybe_else_idx
+        .map(|else_idx| &children[then_idx + 1..else_idx])
+        .unwrap_or(&[]);
+    let then_tail_end_byte = maybe_else_idx
+        .map(|else_idx| children[else_idx].start_byte())
+        .unwrap_or_else(|| then_body_node.end_byte());
+    let then_closing_kind = if maybe_else_idx.is_some() {
+        ControlStatementClosingKind::End
+    } else {
+        ControlStatementClosingKind::EndSemicolon
+    };
+
+    match collect_if_branch_candidate(
+        ControlStatementBodyShape {
+            kind: ControlStatementKind::IfThen,
+            owner_start_byte,
+            separator_end_byte: children[then_separator_idx].end_byte(),
+            body_node: then_body_node,
+            prefix_children: &children[then_separator_idx + 1..then_idx],
+            suffix_children: then_suffix_children,
+            tail_end_byte: then_tail_end_byte,
+            closing_kind: then_closing_kind,
+        },
+        source,
+    ) {
+        ControlStatementBranchCandidateState::Candidate(candidate) => candidates.push(candidate),
+        ControlStatementBranchCandidateState::AlreadyWrapped => {}
+        ControlStatementBranchCandidateState::Unsafe => return false,
+    }
+
+    let Some(else_idx) = maybe_else_idx else {
+        return true;
+    };
+    let Some(else_body_node) = node.child_by_field_name("else") else {
+        return false;
+    };
+
+    if matches!(else_body_node.kind(), "if" | "ifElse") {
+        return collect_if_chain_candidates_from_node(
+            else_body_node,
+            children[else_idx].start_byte(),
+            source,
+            candidates,
+        );
+    }
+
+    let Some(else_body_idx) = children.iter().position(|child| *child == else_body_node) else {
+        return false;
+    };
+    if else_body_idx <= else_idx {
+        return false;
+    }
+
+    match collect_if_branch_candidate(
+        ControlStatementBodyShape {
+            kind: ControlStatementKind::Else,
+            owner_start_byte,
+            separator_end_byte: children[else_idx].end_byte(),
+            body_node: else_body_node,
+            prefix_children: &children[else_idx + 1..else_body_idx],
+            suffix_children: &[],
+            tail_end_byte: else_body_node.end_byte(),
+            closing_kind: ControlStatementClosingKind::EndSemicolon,
+        },
+        source,
+    ) {
+        ControlStatementBranchCandidateState::Candidate(candidate) => candidates.push(candidate),
+        ControlStatementBranchCandidateState::AlreadyWrapped => {}
+        ControlStatementBranchCandidateState::Unsafe => return false,
+    }
+
+    true
+}
+
+fn collect_if_chain_body_candidates(
+    node: Node,
+    source: &str,
+    context: &mut ControlStatementBodyWrappingContext,
+) {
+    if node.kind() != "ifElse" || is_else_child_of_if_chain(node) {
+        return;
+    }
+
+    let mut candidates = Vec::new();
+    if collect_if_chain_candidates_from_node(node, node.start_byte(), source, &mut candidates)
+        && !candidates.is_empty()
     {
-        return;
+        let trailing_comment_children = trailing_comment_children_after_node(node, source);
+        if let Some(last_candidate) = candidates.last_mut()
+            && let Some(last_comment) = trailing_comment_children.last()
+        {
+            last_candidate.body_suffix_end_byte = last_comment.end_byte();
+            last_candidate.tail_end_byte = last_comment.end_byte();
+        }
+        context.candidates.extend(candidates);
     }
-    if prefix_children
-        .iter()
-        .any(|child| child.kind() != "comment")
-    {
-        return;
-    }
-
-    if !is_whitespace_only_until_line_end(source, body_node.end_byte()) {
-        return;
-    }
-
-    let body_prefix_start_byte = prefix_children
-        .first()
-        .map(|child| child.start_byte())
-        .unwrap_or_else(|| body_node.start_byte());
-
-    context.candidates.push(ControlStatementBodyCandidate {
-        kind,
-        owner_start_byte: node.start_byte(),
-        separator_end_byte: children[separator_idx].end_byte(),
-        body_prefix_start_byte,
-        body_start_byte: body_node.start_byte(),
-        body_end_byte: body_node.end_byte(),
-    });
 }
 
 fn normalize_control_statement_body_wrapping_context(
@@ -955,6 +1291,8 @@ fn normalize_control_statement_body_wrapping_context(
             candidate.separator_end_byte,
             candidate.body_prefix_start_byte,
             candidate.body_end_byte,
+            candidate.body_suffix_end_byte,
+            candidate.tail_end_byte,
         )
     });
     candidates.dedup_by(|a, b| {
@@ -964,6 +1302,10 @@ fn normalize_control_statement_body_wrapping_context(
             && a.body_prefix_start_byte == b.body_prefix_start_byte
             && a.body_start_byte == b.body_start_byte
             && a.body_end_byte == b.body_end_byte
+            && a.body_suffix_end_byte == b.body_suffix_end_byte
+            && a.tail_end_byte == b.tail_end_byte
+            && a.closing_kind == b.closing_kind
+            && a.insert_body_semicolon == b.insert_body_semicolon
     });
 }
 
@@ -972,7 +1314,9 @@ fn collect_control_statement_body_wrapping_context(
     source: &str,
     context: &mut ControlStatementBodyWrappingContext,
 ) {
-    collect_control_statement_body_candidate(node, source, context);
+    collect_loop_control_statement_body_candidate(node, source, context);
+    collect_standalone_if_body_candidate(node, source, context);
+    collect_if_chain_body_candidates(node, source, context);
 
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i) {
@@ -2001,23 +2345,159 @@ end."#;
     }
 
     #[test]
-    fn test_parse_with_contexts_skips_control_statement_body_candidates_with_pp_or_trailing_comment()
-     {
+    fn test_parse_with_contexts_skips_control_statement_body_candidates_with_pp_wrapper() {
         let source = r#"program BodyWrapEdgeSkips;
 begin
   for I := 1 to 3 do
 {$IFDEF DEBUG}
     Foo;
 {$ENDIF}
-  for I := 1 to 3 do
-    Foo; // tail
 end."#;
 
         let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
 
         assert!(
             wrapping_context.candidates.is_empty(),
-            "Preprocessor-wrapped and same-line trailing-comment bodies should be skipped"
+            "Preprocessor-wrapped bodies should not produce wrapping candidates"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_control_statement_body_candidates_with_trailing_comment() {
+        let source = r#"program BodyWrapTrailingComment;
+begin
+  for I := 1 to 3 do
+    Foo; // tail
+  if LKeep then
+    Bar; // keep tail
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(wrapping_context.candidates.len(), 2);
+
+        let loop_candidate = &wrapping_context.candidates[0];
+        assert_eq!(
+            &source[loop_candidate.body_end_byte..loop_candidate.body_suffix_end_byte],
+            " // tail"
+        );
+
+        let if_candidate = &wrapping_context.candidates[1];
+        assert_eq!(if_candidate.kind, ControlStatementKind::IfThen);
+        assert_eq!(
+            &source[if_candidate.body_end_byte..if_candidate.body_suffix_end_byte],
+            " // keep tail"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_if_chain_candidates_with_semicolon_and_comment_context() {
+        let source = r#"program IfWrap;
+begin
+  if LThis then
+    Foo()
+    // note
+  else if LThat then
+    Exit
+  else
+    // else note
+    Bar;
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(wrapping_context.candidates.len(), 3);
+
+        let outer_then = &wrapping_context.candidates[0];
+        assert_eq!(outer_then.kind, ControlStatementKind::IfThen);
+        assert_eq!(outer_then.closing_kind, ControlStatementClosingKind::End);
+        assert!(outer_then.insert_body_semicolon);
+        assert_eq!(
+            &source[outer_then.body_start_byte..outer_then.body_end_byte],
+            "Foo()"
+        );
+        assert_eq!(
+            &source[outer_then.body_end_byte..outer_then.body_suffix_end_byte],
+            "\n    // note"
+        );
+
+        let nested_then = &wrapping_context.candidates[1];
+        assert_eq!(nested_then.kind, ControlStatementKind::IfThen);
+        assert_eq!(nested_then.closing_kind, ControlStatementClosingKind::End);
+        assert!(nested_then.insert_body_semicolon);
+        assert_eq!(
+            &source[nested_then.body_start_byte..nested_then.body_end_byte],
+            "Exit"
+        );
+
+        let final_else = &wrapping_context.candidates[2];
+        assert_eq!(final_else.kind, ControlStatementKind::Else);
+        assert_eq!(
+            final_else.closing_kind,
+            ControlStatementClosingKind::EndSemicolon
+        );
+        assert!(!final_else.insert_body_semicolon);
+        assert_eq!(
+            &source[final_else.body_prefix_start_byte..final_else.body_start_byte],
+            "// else note\n    "
+        );
+        assert_eq!(
+            &source[final_else.body_start_byte..final_else.body_end_byte],
+            "Bar;"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_unwrapped_branches_when_if_chain_mixes_blocks_and_statements()
+     {
+        let source = r#"program IfMixed;
+begin
+  if LThis then
+  begin
+    Foo;
+  end
+  else
+    Exit;
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(wrapping_context.candidates.len(), 1);
+        let candidate = &wrapping_context.candidates[0];
+        assert_eq!(candidate.kind, ControlStatementKind::Else);
+        assert_eq!(
+            candidate.closing_kind,
+            ControlStatementClosingKind::EndSemicolon
+        );
+        assert_eq!(
+            &source[candidate.body_start_byte..candidate.body_end_byte],
+            "Exit;"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_standalone_if_candidate_but_skips_terminating_statement() {
+        let source = r#"program IfStandalone;
+begin
+  if LThat then
+    Exit;
+  if LThis then
+    Foo()
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(wrapping_context.candidates.len(), 1);
+        let standalone_then = &wrapping_context.candidates[0];
+        assert_eq!(standalone_then.kind, ControlStatementKind::IfThen);
+        assert_eq!(
+            standalone_then.closing_kind,
+            ControlStatementClosingKind::EndSemicolon
+        );
+        assert!(standalone_then.insert_body_semicolon);
+        assert_eq!(
+            &source[standalone_then.body_start_byte..standalone_then.body_end_byte],
+            "Foo()"
         );
     }
 }
