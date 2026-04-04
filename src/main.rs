@@ -215,17 +215,12 @@ fn process_file(
             replacements.extend(local_routine_replacements);
         }
 
-        if options
-            .transformations
-            .enable_control_statement_body_wrapping
-        {
-            let control_statement_replacements = transform_control_statement_body_wrapping(
-                &source,
-                &control_statement_body_wrapping_context,
-                &options,
-            );
-            replacements.extend(control_statement_replacements);
-        }
+        let control_statement_replacements = transform_control_statement_body_wrapping(
+            &source,
+            &control_statement_body_wrapping_context,
+            &options,
+        );
+        replacements.extend(control_statement_replacements);
 
         replacements
     });

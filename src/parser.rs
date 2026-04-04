@@ -127,6 +127,7 @@ pub struct LocalRoutineSpacingContext {
 pub enum ControlStatementKind {
     For,
     Foreach,
+    While,
     IfThen,
     Else,
 }
@@ -821,20 +822,25 @@ fn loop_control_statement_kind(node: Node) -> Option<ControlStatementKind> {
     match node.kind() {
         "for" => Some(ControlStatementKind::For),
         "foreach" => Some(ControlStatementKind::Foreach),
+        "while" => Some(ControlStatementKind::While),
         _ => None,
     }
 }
 
 fn loop_control_statement_body_field_name(kind: &ControlStatementKind) -> &'static str {
     match kind {
-        ControlStatementKind::For | ControlStatementKind::Foreach => "body",
+        ControlStatementKind::For | ControlStatementKind::Foreach | ControlStatementKind::While => {
+            "body"
+        }
         ControlStatementKind::IfThen | ControlStatementKind::Else => unreachable!(),
     }
 }
 
 fn loop_control_statement_separator_kind(kind: &ControlStatementKind) -> &'static str {
     match kind {
-        ControlStatementKind::For | ControlStatementKind::Foreach => "kDo",
+        ControlStatementKind::For | ControlStatementKind::Foreach | ControlStatementKind::While => {
+            "kDo"
+        }
         ControlStatementKind::IfThen | ControlStatementKind::Else => unreachable!(),
     }
 }
@@ -852,23 +858,6 @@ fn is_whitespace_only_until_line_end(source: &str, start: usize) -> bool {
     source[start..idx]
         .chars()
         .all(|ch| ch.is_whitespace() && ch != '\n' && ch != '\r')
-}
-
-fn is_control_statement_skip_keyword(text: &str) -> bool {
-    let trimmed = text.trim().trim_end_matches(';').trim();
-    if trimmed.is_empty() {
-        return true;
-    }
-
-    let uppercase = trimmed.to_ascii_uppercase();
-    ["EXIT", "CONTINUE", "BREAK", "RAISE", "ABORT", "HALT"]
-        .iter()
-        .any(|keyword| {
-            uppercase == *keyword
-                || uppercase.strip_prefix(keyword).is_some_and(|rest| {
-                    rest.starts_with('(') || rest.starts_with(char::is_whitespace)
-                })
-        })
 }
 
 fn body_has_explicit_semicolon(body_node: Node) -> bool {
@@ -1008,14 +997,8 @@ fn collect_loop_control_statement_body_candidate(
     else {
         return;
     };
-    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";" | "raise") {
+    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";") {
         return;
-    }
-    if body_node.kind() == "statement" {
-        let body_text = &source[body_node.start_byte()..body_node.end_byte()];
-        if is_control_statement_skip_keyword(body_text) {
-            return;
-        }
     }
 
     let mut children = Vec::new();
@@ -1102,14 +1085,8 @@ fn collect_standalone_if_body_candidate(
     let Some(body_node) = node.child_by_field_name("then") else {
         return;
     };
-    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";" | "raise") {
+    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";") {
         return;
-    }
-    if body_node.kind() == "statement" {
-        let body_text = &source[body_node.start_byte()..body_node.end_byte()];
-        if is_control_statement_skip_keyword(body_text) {
-            return;
-        }
     }
 
     let mut children = Vec::new();
@@ -2263,17 +2240,19 @@ end;"#;
     }
 
     #[test]
-    fn test_parse_with_contexts_collects_control_statement_body_candidates_for_for_and_foreach() {
+    fn test_parse_with_contexts_collects_control_statement_body_candidates_for_loops_and_while() {
         let source = r#"program BodyWrap;
 begin
   for I := 1 to 3 do
     Foo;
+  while Ready do
+    Step;
   for Value in Values do Bar(Value);
 end."#;
 
         let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
 
-        assert_eq!(wrapping_context.candidates.len(), 2);
+        assert_eq!(wrapping_context.candidates.len(), 3);
 
         let for_candidate = &wrapping_context.candidates[0];
         assert_eq!(for_candidate.kind, ControlStatementKind::For);
@@ -2282,7 +2261,14 @@ end."#;
             "Foo;"
         );
 
-        let foreach_candidate = &wrapping_context.candidates[1];
+        let while_candidate = &wrapping_context.candidates[1];
+        assert_eq!(while_candidate.kind, ControlStatementKind::While);
+        assert_eq!(
+            &source[while_candidate.body_start_byte..while_candidate.body_end_byte],
+            "Step;"
+        );
+
+        let foreach_candidate = &wrapping_context.candidates[2];
         assert_eq!(foreach_candidate.kind, ControlStatementKind::Foreach);
         assert_eq!(
             &source[foreach_candidate.body_start_byte..foreach_candidate.body_end_byte],
@@ -2294,7 +2280,7 @@ end."#;
     fn test_parse_with_contexts_collects_control_statement_body_candidate_with_leading_comments() {
         let source = r#"program BodyWrapComments;
 begin
-  for I := 1 to 3 do
+  while Ready do
     // note
     Foo;
 end."#;
@@ -2303,6 +2289,7 @@ end."#;
 
         assert_eq!(wrapping_context.candidates.len(), 1);
         let candidate = &wrapping_context.candidates[0];
+        assert_eq!(candidate.kind, ControlStatementKind::While);
         assert_eq!(
             &source[candidate.body_prefix_start_byte..candidate.body_start_byte],
             "// note\n    "
@@ -2310,13 +2297,17 @@ end."#;
     }
 
     #[test]
-    fn test_parse_with_contexts_skips_control_statement_body_candidates_for_blocks_and_skip_keywords()
+    fn test_parse_with_contexts_collects_terminating_control_statement_body_candidates_but_skips_blocks_and_empty_bodies()
      {
         let source = r#"program BodyWrapSkips;
 begin
   for I := 1 to 3 do
   begin
     Foo;
+  end;
+  while Ready do
+  begin
+    Step;
   end;
   for I := 1 to 3 do
     Exit;
@@ -2334,13 +2325,41 @@ begin
     Halt(1);
   for I := 1 to 3 do
     ;
+  while Ready do
+    Break;
+  while Ready do
+    Continue;
+  while Ready do
+    Exit;
+  while Ready do
+    raise Exception.Create('boom');
+  while Ready do
+    Abort;
+  while Ready do
+    Halt(1);
+  while Ready do
+    ;
 end."#;
 
         let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
 
+        let candidate_bodies: Vec<&str> = wrapping_context
+            .candidates
+            .iter()
+            .map(|candidate| &source[candidate.body_start_byte..candidate.body_end_byte])
+            .collect();
+
+        assert_eq!(candidate_bodies.len(), 13);
+        assert!(candidate_bodies.contains(&"Exit;"));
+        assert!(candidate_bodies.contains(&"EXIT(1);"));
+        assert!(candidate_bodies.contains(&"Continue;"));
+        assert!(candidate_bodies.contains(&"Break;"));
+        assert!(candidate_bodies.contains(&"raise Exception.Create('boom');"));
+        assert!(candidate_bodies.contains(&"Abort;"));
+        assert!(candidate_bodies.contains(&"Halt(1);"));
         assert!(
-            wrapping_context.candidates.is_empty(),
-            "Block bodies and configured skip statements should not produce wrapping candidates"
+            !candidate_bodies.contains(&";"),
+            "Empty statement bodies should not produce wrapping candidates"
         );
     }
 
@@ -2351,6 +2370,10 @@ begin
   for I := 1 to 3 do
 {$IFDEF DEBUG}
     Foo;
+{$ENDIF}
+  while Ready do
+{$IFDEF DEBUG}
+    Step;
 {$ENDIF}
 end."#;
 
@@ -2368,21 +2391,30 @@ end."#;
 begin
   for I := 1 to 3 do
     Foo; // tail
+  while Ready do
+    Step; // keep while tail
   if LKeep then
     Bar; // keep tail
 end."#;
 
         let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
 
-        assert_eq!(wrapping_context.candidates.len(), 2);
+        assert_eq!(wrapping_context.candidates.len(), 3);
 
-        let loop_candidate = &wrapping_context.candidates[0];
+        let for_candidate = &wrapping_context.candidates[0];
         assert_eq!(
-            &source[loop_candidate.body_end_byte..loop_candidate.body_suffix_end_byte],
+            &source[for_candidate.body_end_byte..for_candidate.body_suffix_end_byte],
             " // tail"
         );
 
-        let if_candidate = &wrapping_context.candidates[1];
+        let while_candidate = &wrapping_context.candidates[1];
+        assert_eq!(while_candidate.kind, ControlStatementKind::While);
+        assert_eq!(
+            &source[while_candidate.body_end_byte..while_candidate.body_suffix_end_byte],
+            " // keep while tail"
+        );
+
+        let if_candidate = &wrapping_context.candidates[2];
         assert_eq!(if_candidate.kind, ControlStatementKind::IfThen);
         assert_eq!(
             &source[if_candidate.body_end_byte..if_candidate.body_suffix_end_byte],
@@ -2476,7 +2508,8 @@ end."#;
     }
 
     #[test]
-    fn test_parse_with_contexts_collects_standalone_if_candidate_but_skips_terminating_statement() {
+    fn test_parse_with_contexts_collects_standalone_if_candidates_including_terminating_statements()
+    {
         let source = r#"program IfStandalone;
 begin
   if LThat then
@@ -2487,8 +2520,21 @@ end."#;
 
         let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
 
-        assert_eq!(wrapping_context.candidates.len(), 1);
-        let standalone_then = &wrapping_context.candidates[0];
+        assert_eq!(wrapping_context.candidates.len(), 2);
+
+        let terminating_then = &wrapping_context.candidates[0];
+        assert_eq!(terminating_then.kind, ControlStatementKind::IfThen);
+        assert_eq!(
+            terminating_then.closing_kind,
+            ControlStatementClosingKind::EndSemicolon
+        );
+        assert!(!terminating_then.insert_body_semicolon);
+        assert_eq!(
+            &source[terminating_then.body_start_byte..terminating_then.body_end_byte],
+            "Exit;"
+        );
+
+        let standalone_then = &wrapping_context.candidates[1];
         assert_eq!(standalone_then.kind, ControlStatementKind::IfThen);
         assert_eq!(
             standalone_then.closing_kind,

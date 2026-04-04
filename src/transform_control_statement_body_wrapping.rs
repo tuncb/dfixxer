@@ -1,6 +1,7 @@
 use crate::options::Options;
 use crate::parser::{
-    ControlStatementBodyCandidate, ControlStatementBodyWrappingContext, ControlStatementClosingKind,
+    ControlStatementBodyCandidate, ControlStatementBodyWrappingContext,
+    ControlStatementClosingKind, ControlStatementKind,
 };
 use crate::replacements::TextReplacement;
 use crate::transformer_utility::{create_text_replacement_if_different, find_line_start};
@@ -34,6 +35,50 @@ fn target_body_indent(
             existing_indent.to_string()
         }
         _ => default_indent,
+    }
+}
+
+fn is_terminating_control_statement_body(text: &str) -> bool {
+    let trimmed = text.trim().trim_end_matches(';').trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let uppercase = trimmed.to_ascii_uppercase();
+    ["EXIT", "CONTINUE", "BREAK", "RAISE", "ABORT", "HALT"]
+        .iter()
+        .any(|keyword| {
+            uppercase == *keyword
+                || uppercase.strip_prefix(keyword).is_some_and(|rest| {
+                    rest.starts_with('(') || rest.starts_with(char::is_whitespace)
+                })
+        })
+}
+
+fn is_body_wrapping_enabled(candidate: &ControlStatementBodyCandidate, options: &Options) -> bool {
+    match candidate.kind {
+        ControlStatementKind::For | ControlStatementKind::Foreach => {
+            options.transformations.enable_for_body_wrapping
+        }
+        ControlStatementKind::While => options.transformations.enable_while_body_wrapping,
+        ControlStatementKind::IfThen | ControlStatementKind::Else => {
+            options.transformations.enable_if_body_wrapping
+        }
+    }
+}
+
+fn should_skip_terminating_body(
+    candidate: &ControlStatementBodyCandidate,
+    options: &Options,
+) -> bool {
+    match candidate.kind {
+        ControlStatementKind::For | ControlStatementKind::Foreach => {
+            options.transformations.skip_terminating_for_body_wrapping
+        }
+        ControlStatementKind::While => options.transformations.skip_terminating_while_body_wrapping,
+        ControlStatementKind::IfThen | ControlStatementKind::Else => {
+            options.transformations.skip_terminating_if_body_wrapping
+        }
     }
 }
 
@@ -96,6 +141,17 @@ pub fn transform_control_statement_body_wrapping(
     let mut replacements = Vec::with_capacity(context.candidates.len() * 2);
 
     for candidate in &context.candidates {
+        if !is_body_wrapping_enabled(candidate, options) {
+            continue;
+        }
+
+        let body_text = &source[candidate.body_start_byte..candidate.body_end_byte];
+        if should_skip_terminating_body(candidate, options)
+            && is_terminating_control_statement_body(body_text)
+        {
+            continue;
+        }
+
         if let Some(replacement) = begin_replacement(source, candidate, options) {
             replacements.push((replacement, candidate.owner_start_byte));
         }
@@ -132,7 +188,8 @@ mod tests {
         }
     }
 
-    fn make_candidate(
+    fn make_candidate_with_kind(
+        kind: ControlStatementKind,
         source: &str,
         owner_text: &str,
         separator_text: &str,
@@ -140,14 +197,23 @@ mod tests {
         body_text: &str,
     ) -> ControlStatementBodyCandidate {
         let owner_start_byte = source.find(owner_text).unwrap();
-        let separator_start = source.find(separator_text).unwrap();
+        let separator_start = source[owner_start_byte..]
+            .find(separator_text)
+            .map(|offset| owner_start_byte + offset)
+            .unwrap();
         let separator_end_byte = separator_start + separator_text.len();
-        let body_prefix_start_byte = source.find(body_prefix_text).unwrap();
-        let body_start_byte = source.find(body_text).unwrap();
+        let body_prefix_start_byte = source[owner_start_byte..]
+            .find(body_prefix_text)
+            .map(|offset| owner_start_byte + offset)
+            .unwrap();
+        let body_start_byte = source[owner_start_byte..]
+            .find(body_text)
+            .map(|offset| owner_start_byte + offset)
+            .unwrap();
         let body_end_byte = body_start_byte + body_text.len();
 
         ControlStatementBodyCandidate {
-            kind: ControlStatementKind::For,
+            kind,
             owner_start_byte,
             separator_end_byte,
             body_prefix_start_byte,
@@ -158,6 +224,23 @@ mod tests {
             closing_kind: ControlStatementClosingKind::EndSemicolon,
             insert_body_semicolon: false,
         }
+    }
+
+    fn make_candidate(
+        source: &str,
+        owner_text: &str,
+        separator_text: &str,
+        body_prefix_text: &str,
+        body_text: &str,
+    ) -> ControlStatementBodyCandidate {
+        make_candidate_with_kind(
+            ControlStatementKind::For,
+            source,
+            owner_text,
+            separator_text,
+            body_prefix_text,
+            body_text,
+        )
     }
 
     #[test]
@@ -301,6 +384,83 @@ mod tests {
         assert_eq!(replacements.len(), 2);
         assert_eq!(replacements[0].text, "\n  begin\n    ");
         assert_eq!(replacements[1].text, " // tail\n  end;");
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_respects_per_statement_enable_flags() {
+        let source = "begin\n  for I := 1 to 3 do Foo;\n  while Ready do Step;\nend.";
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![
+                make_candidate_with_kind(
+                    ControlStatementKind::For,
+                    source,
+                    "for I := 1 to 3 do Foo;",
+                    "do",
+                    "Foo;",
+                    "Foo;",
+                ),
+                make_candidate_with_kind(
+                    ControlStatementKind::While,
+                    source,
+                    "while Ready do Step;",
+                    "do",
+                    "Step;",
+                    "Step;",
+                ),
+            ],
+        };
+
+        let mut options = make_options();
+        options.transformations.enable_for_body_wrapping = false;
+
+        let replacements = transform_control_statement_body_wrapping(source, &context, &options);
+        let result = apply_replacements_to_string(source, &replacements);
+
+        assert!(result.contains("for I := 1 to 3 do Foo;"));
+        assert!(result.contains("while Ready do\n  begin\n    Step;\n  end;"));
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_skips_terminating_if_when_configured() {
+        let source = "begin\n  if A then Exit;\nend.";
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![make_candidate_with_kind(
+                ControlStatementKind::IfThen,
+                source,
+                "if A then Exit;",
+                "then",
+                "Exit;",
+                "Exit;",
+            )],
+        };
+
+        let replacements =
+            transform_control_statement_body_wrapping(source, &context, &make_options());
+
+        assert!(replacements.is_empty());
+    }
+
+    #[test]
+    fn test_transform_control_statement_body_wrapping_wraps_terminating_if_when_skip_disabled() {
+        let source = "begin\n  if A then Exit;\nend.";
+        let context = ControlStatementBodyWrappingContext {
+            candidates: vec![make_candidate_with_kind(
+                ControlStatementKind::IfThen,
+                source,
+                "if A then Exit;",
+                "then",
+                "Exit;",
+                "Exit;",
+            )],
+        };
+
+        let mut options = make_options();
+        options.transformations.skip_terminating_if_body_wrapping = false;
+
+        let replacements = transform_control_statement_body_wrapping(source, &context, &options);
+        let result = apply_replacements_to_string(source, &replacements);
+
+        assert!(result.contains("if A then\n  begin\n    Exit;\n  end;"));
     }
 
     #[test]

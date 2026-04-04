@@ -12,4 +12,6 @@ enable_uses_section = true
 enable_unit_program_section = true
 enable_single_keyword_sections = true
 enable_procedure_section = true
-enable_control_statement_body_wrapping = false
+enable_for_body_wrapping = false
+enable_while_body_wrapping = false
+enable_if_body_wrapping = false

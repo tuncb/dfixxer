@@ -51,7 +51,9 @@ begin
   end;
 
   if LSkip then
+  begin
     Exit;
+  end;
 
   if LKeep then
   begin
