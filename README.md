@@ -8,6 +8,7 @@ A command-line tool that reformats Delphi/Pascal files.
 - Normalizes `unit` and `program` headers
 - Normalizes single-keyword sections such as `interface`, `implementation`, `initialization`, and `finalization`
 - Reformats routine declarations, including `procedure`, `function`, `constructor`, `destructor`, and `operator`
+- Wraps eligible single-statement control bodies in `begin` / `end` blocks for `for` and `for .. in` loops
 - Expands bare `inherited` calls to explicit inherited routine calls when the target can be resolved
 - Normalizes spacing and casing in general source text, including commas, operators, generics, comments, and keywords
 - Fixes spacing between local routine declarations
@@ -325,6 +326,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `enable_procedure_section` (boolean) - Enable procedure section processing (default: `true`)
   - `enable_local_routine_spacing` (boolean) - Ensure implemented local routines have one empty line before and after them, while keeping attached comments / clean `{$IF...}` wrappers with the routine block (default: `true`)
   - `enable_local_routine_indentation` (boolean) - Indent implemented local routine blocks by one configured indentation level relative to their owning routine, including attached comments / clean `{$IF...}` wrappers (default: `true`)
+  - `enable_control_statement_body_wrapping` (boolean) - Wrap eligible single-statement control bodies in `begin` / `end`; currently applies to `for` and `for .. in` loops, skips bodies already using `begin` / `end`, configured terminating statements (`Exit`, `Continue`, `Break`, `raise`, `Abort`, `Halt`, case-insensitive, including call forms such as `Exit(1)`), and conservative parser edge cases like preprocessor-wrapped or same-line trailing-comment bodies (default: `true`)
   - `enable_inherited_call_expansion` (boolean) - Expand bare `inherited;` to an explicit inherited call using the current routine name/arguments (default: `true`)
   - `enable_text_transformations` (boolean) - Enable text formatting transformations (default: `true`)
 
@@ -413,6 +415,7 @@ enable_single_keyword_sections = true
 enable_procedure_section = true
 enable_local_routine_spacing = true
 enable_local_routine_indentation = true
+enable_control_statement_body_wrapping = true
 enable_inherited_call_expansion = true
 enable_text_transformations = true
 

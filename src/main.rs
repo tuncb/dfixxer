@@ -6,6 +6,7 @@ use diffy::create_patch;
 mod options;
 use options::{Options, find_custom_config_for_file, should_exclude_file};
 mod replacements;
+mod transform_control_statement_body_wrapping;
 mod transform_inherited_calls;
 mod transform_local_routine_indentation;
 mod transform_local_routine_spacing;
@@ -23,6 +24,7 @@ use parser::{parse, parse_with_contexts};
 mod suppression;
 
 use crate::suppression::collect_suppression_context;
+use crate::transform_control_statement_body_wrapping::transform_control_statement_body_wrapping;
 use crate::transform_inherited_calls::transform_inherited_calls;
 use crate::transform_local_routine_indentation::transform_local_routine_indentation;
 use crate::transform_local_routine_spacing::transform_local_routine_spacing;
@@ -124,8 +126,13 @@ fn process_file(
     }
 
     // Time parsing
-    let (parse_result, spacing_context, inherited_expansion_context, local_routine_spacing_context) =
-        timing.time_operation_result("Parsing", || parse_with_contexts(&source))?;
+    let (
+        parse_result,
+        spacing_context,
+        inherited_expansion_context,
+        local_routine_spacing_context,
+        control_statement_body_wrapping_context,
+    ) = timing.time_operation_result("Parsing", || parse_with_contexts(&source))?;
     if !spacing_context.error_ranges.is_empty() {
         let message = format!(
             "Parser recovered with {} error span(s) in '{}'; text changes are skipped inside error spans.",
@@ -206,6 +213,18 @@ fn process_file(
             let local_routine_replacements =
                 transform_local_routine_spacing(&source, &local_routine_spacing_context, &options);
             replacements.extend(local_routine_replacements);
+        }
+
+        if options
+            .transformations
+            .enable_control_statement_body_wrapping
+        {
+            let control_statement_replacements = transform_control_statement_body_wrapping(
+                &source,
+                &control_statement_body_wrapping_context,
+                &options,
+            );
+            replacements.extend(control_statement_replacements);
         }
 
         replacements

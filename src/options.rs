@@ -499,6 +499,7 @@ pub struct TransformationOptions {
     pub enable_procedure_section: bool,
     pub enable_local_routine_spacing: bool,
     pub enable_local_routine_indentation: bool,
+    pub enable_control_statement_body_wrapping: bool,
     pub enable_inherited_call_expansion: bool,
     pub enable_text_transformations: bool,
 }
@@ -512,6 +513,7 @@ impl Default for TransformationOptions {
             enable_procedure_section: true,
             enable_local_routine_spacing: true,
             enable_local_routine_indentation: true,
+            enable_control_statement_body_wrapping: true,
             enable_inherited_call_expansion: true,
             enable_text_transformations: true,
         }
@@ -786,6 +788,11 @@ mod tests {
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_local_routine_spacing);
         assert!(options.transformations.enable_local_routine_indentation);
+        assert!(
+            options
+                .transformations
+                .enable_control_statement_body_wrapping
+        );
         assert!(options.transformations.enable_inherited_call_expansion);
         assert!(options.text_changes.space_inside_brace_comments);
         assert!(options.text_changes.space_inside_paren_star_comments);
@@ -816,6 +823,11 @@ mod tests {
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_local_routine_spacing);
         assert!(options.transformations.enable_local_routine_indentation);
+        assert!(
+            options
+                .transformations
+                .enable_control_statement_body_wrapping
+        );
         assert!(options.transformations.enable_inherited_call_expansion);
         assert!(options.text_changes.space_inside_brace_comments);
         assert!(options.text_changes.space_inside_paren_star_comments);
@@ -991,6 +1003,11 @@ enable_uses_section = false
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_local_routine_spacing);
         assert!(options.transformations.enable_local_routine_indentation);
+        assert!(
+            options
+                .transformations
+                .enable_control_statement_body_wrapping
+        );
         assert!(options.transformations.enable_inherited_call_expansion);
         assert!(options.text_changes.enforce_word_casing.is_empty());
     }

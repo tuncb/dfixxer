@@ -122,6 +122,30 @@ pub struct LocalRoutineSpacingContext {
     pub blocks: Vec<LocalRoutineBlock>,
 }
 
+/// Control statements that can wrap a single body statement in `begin` / `end`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ControlStatementKind {
+    For,
+    Foreach,
+}
+
+/// Candidate info for wrapping a single-statement control body in `begin` / `end`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlStatementBodyCandidate {
+    pub kind: ControlStatementKind,
+    pub owner_start_byte: usize,
+    pub separator_end_byte: usize,
+    pub body_prefix_start_byte: usize,
+    pub body_start_byte: usize,
+    pub body_end_byte: usize,
+}
+
+/// Collected context for control-statement body wrapping transformations.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ControlStatementBodyWrappingContext {
+    pub candidates: Vec<ControlStatementBodyCandidate>,
+}
+
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
     let mut parser = Parser::new();
     parser
@@ -780,6 +804,183 @@ fn collect_local_routine_spacing_context(
     }
 }
 
+fn control_statement_kind(node: Node) -> Option<ControlStatementKind> {
+    match node.kind() {
+        "for" => Some(ControlStatementKind::For),
+        "foreach" => Some(ControlStatementKind::Foreach),
+        _ => None,
+    }
+}
+
+fn control_statement_body_field_name(kind: &ControlStatementKind) -> &'static str {
+    match kind {
+        ControlStatementKind::For | ControlStatementKind::Foreach => "body",
+    }
+}
+
+fn control_statement_separator_kind(kind: &ControlStatementKind) -> &'static str {
+    match kind {
+        ControlStatementKind::For | ControlStatementKind::Foreach => "kDo",
+    }
+}
+
+fn is_whitespace_only_until_line_end(source: &str, start: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut idx = start;
+    while idx < bytes.len() {
+        if bytes[idx] == b'\n' || bytes[idx] == b'\r' {
+            break;
+        }
+        idx += 1;
+    }
+
+    source[start..idx]
+        .chars()
+        .all(|ch| ch.is_whitespace() && ch != '\n' && ch != '\r')
+}
+
+fn is_control_statement_skip_keyword(text: &str) -> bool {
+    let trimmed = text.trim().trim_end_matches(';').trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let uppercase = trimmed.to_ascii_uppercase();
+    ["EXIT", "CONTINUE", "BREAK", "RAISE", "ABORT", "HALT"]
+        .iter()
+        .any(|keyword| {
+            uppercase == *keyword
+                || uppercase.strip_prefix(keyword).is_some_and(|rest| {
+                    rest.starts_with('(') || rest.starts_with(char::is_whitespace)
+                })
+        })
+}
+
+fn should_skip_control_statement_body(body_node: Node, source: &str) -> bool {
+    if body_node.has_error() || matches!(body_node.kind(), "block" | "asm" | ";" | "raise") {
+        return true;
+    }
+
+    if body_node.kind() != "statement" {
+        return false;
+    }
+
+    let body_text = &source[body_node.start_byte()..body_node.end_byte()];
+    is_control_statement_skip_keyword(body_text)
+}
+
+fn collect_control_statement_body_candidate(
+    node: Node,
+    source: &str,
+    context: &mut ControlStatementBodyWrappingContext,
+) {
+    let Some(kind) = control_statement_kind(node) else {
+        return;
+    };
+
+    if node.has_error() {
+        return;
+    }
+
+    let Some(body_node) = node.child_by_field_name(control_statement_body_field_name(&kind)) else {
+        return;
+    };
+    if should_skip_control_statement_body(body_node, source) {
+        return;
+    }
+
+    let mut children = Vec::new();
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            children.push(child);
+        }
+    }
+
+    let Some(separator_idx) = children
+        .iter()
+        .position(|child| child.kind() == control_statement_separator_kind(&kind))
+    else {
+        return;
+    };
+    let Some(body_idx) = children.iter().position(|child| *child == body_node) else {
+        return;
+    };
+    if body_idx <= separator_idx {
+        return;
+    }
+
+    let prefix_children = &children[separator_idx + 1..body_idx];
+    if prefix_children.iter().any(|child| child.has_error()) {
+        return;
+    }
+    if prefix_children
+        .iter()
+        .any(|child| matches!(child.kind(), "pp" | "block" | "asm"))
+    {
+        return;
+    }
+    if prefix_children
+        .iter()
+        .any(|child| child.kind() != "comment")
+    {
+        return;
+    }
+
+    if !is_whitespace_only_until_line_end(source, body_node.end_byte()) {
+        return;
+    }
+
+    let body_prefix_start_byte = prefix_children
+        .first()
+        .map(|child| child.start_byte())
+        .unwrap_or_else(|| body_node.start_byte());
+
+    context.candidates.push(ControlStatementBodyCandidate {
+        kind,
+        owner_start_byte: node.start_byte(),
+        separator_end_byte: children[separator_idx].end_byte(),
+        body_prefix_start_byte,
+        body_start_byte: body_node.start_byte(),
+        body_end_byte: body_node.end_byte(),
+    });
+}
+
+fn normalize_control_statement_body_wrapping_context(
+    context: &mut ControlStatementBodyWrappingContext,
+) {
+    let candidates = &mut context.candidates;
+    candidates.sort_unstable_by_key(|candidate| {
+        (
+            candidate.owner_start_byte,
+            candidate.separator_end_byte,
+            candidate.body_prefix_start_byte,
+            candidate.body_end_byte,
+        )
+    });
+    candidates.dedup_by(|a, b| {
+        a.kind == b.kind
+            && a.owner_start_byte == b.owner_start_byte
+            && a.separator_end_byte == b.separator_end_byte
+            && a.body_prefix_start_byte == b.body_prefix_start_byte
+            && a.body_start_byte == b.body_start_byte
+            && a.body_end_byte == b.body_end_byte
+    });
+}
+
+fn collect_control_statement_body_wrapping_context(
+    node: Node,
+    source: &str,
+    context: &mut ControlStatementBodyWrappingContext,
+) {
+    collect_control_statement_body_candidate(node, source, context);
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_control_statement_body_wrapping_context(child, source, context);
+        }
+    }
+}
+
 /// Generic transform function for kUses, kProgram, and kUnit nodes into a CodeSection
 fn transform_keyword_to_code_section(
     keyword_node: Node,
@@ -965,6 +1166,7 @@ pub fn parse_with_contexts(
         SpacingContext,
         InheritedExpansionContext,
         LocalRoutineSpacingContext,
+        ControlStatementBodyWrappingContext,
     ),
     DFixxerError,
 > {
@@ -988,11 +1190,21 @@ pub fn parse_with_contexts(
     );
     normalize_local_routine_spacing_context(&mut local_routine_spacing_context);
 
+    let mut control_statement_body_wrapping_context =
+        ControlStatementBodyWrappingContext::default();
+    collect_control_statement_body_wrapping_context(
+        tree.root_node(),
+        source,
+        &mut control_statement_body_wrapping_context,
+    );
+    normalize_control_statement_body_wrapping_context(&mut control_statement_body_wrapping_context);
+
     Ok((
         ParseResult { code_sections },
         spacing_context,
         inherited_expansion_context,
         local_routine_spacing_context,
+        control_statement_body_wrapping_context,
     ))
 }
 
@@ -1001,7 +1213,7 @@ pub fn parse_with_contexts(
 pub fn parse_with_spacing_context(
     source: &str,
 ) -> Result<(ParseResult, SpacingContext), DFixxerError> {
-    let (parse_result, spacing_context, _, _) = parse_with_contexts(source)?;
+    let (parse_result, spacing_context, _, _, _) = parse_with_contexts(source)?;
     Ok((parse_result, spacing_context))
 }
 
@@ -1432,7 +1644,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -1470,7 +1682,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -1511,7 +1723,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -1545,7 +1757,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
         assert!(
             inherited_context.candidates.is_empty(),
             "Only bare inherited statements should produce expansion candidates"
@@ -1580,7 +1792,7 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(
             inherited_context.candidates.len(),
             1,
@@ -1604,7 +1816,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context) =
+        let (_, _, _, local_routine_context, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(
@@ -1637,7 +1849,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context) =
+        let (_, _, _, local_routine_context, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(local_routine_context.gaps.len(), 2);
@@ -1664,7 +1876,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context) =
+        let (_, _, _, local_routine_context, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(
@@ -1693,7 +1905,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context) =
+        let (_, _, _, local_routine_context, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert!(
@@ -1703,6 +1915,109 @@ end;"#;
         assert!(
             local_routine_context.blocks.is_empty(),
             "Errored local-definition areas should not produce local routine blocks"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_control_statement_body_candidates_for_for_and_foreach() {
+        let source = r#"program BodyWrap;
+begin
+  for I := 1 to 3 do
+    Foo;
+  for Value in Values do Bar(Value);
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(wrapping_context.candidates.len(), 2);
+
+        let for_candidate = &wrapping_context.candidates[0];
+        assert_eq!(for_candidate.kind, ControlStatementKind::For);
+        assert_eq!(
+            &source[for_candidate.body_start_byte..for_candidate.body_end_byte],
+            "Foo;"
+        );
+
+        let foreach_candidate = &wrapping_context.candidates[1];
+        assert_eq!(foreach_candidate.kind, ControlStatementKind::Foreach);
+        assert_eq!(
+            &source[foreach_candidate.body_start_byte..foreach_candidate.body_end_byte],
+            "Bar(Value);"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_control_statement_body_candidate_with_leading_comments() {
+        let source = r#"program BodyWrapComments;
+begin
+  for I := 1 to 3 do
+    // note
+    Foo;
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(wrapping_context.candidates.len(), 1);
+        let candidate = &wrapping_context.candidates[0];
+        assert_eq!(
+            &source[candidate.body_prefix_start_byte..candidate.body_start_byte],
+            "// note\n    "
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_skips_control_statement_body_candidates_for_blocks_and_skip_keywords()
+     {
+        let source = r#"program BodyWrapSkips;
+begin
+  for I := 1 to 3 do
+  begin
+    Foo;
+  end;
+  for I := 1 to 3 do
+    Exit;
+  for I := 1 to 3 do
+    EXIT(1);
+  for I := 1 to 3 do
+    Continue;
+  for I := 1 to 3 do
+    Break;
+  for I := 1 to 3 do
+    raise Exception.Create('boom');
+  for I := 1 to 3 do
+    Abort;
+  for I := 1 to 3 do
+    Halt(1);
+  for I := 1 to 3 do
+    ;
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert!(
+            wrapping_context.candidates.is_empty(),
+            "Block bodies and configured skip statements should not produce wrapping candidates"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_skips_control_statement_body_candidates_with_pp_or_trailing_comment()
+     {
+        let source = r#"program BodyWrapEdgeSkips;
+begin
+  for I := 1 to 3 do
+{$IFDEF DEBUG}
+    Foo;
+{$ENDIF}
+  for I := 1 to 3 do
+    Foo; // tail
+end."#;
+
+        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert!(
+            wrapping_context.candidates.is_empty(),
+            "Preprocessor-wrapped and same-line trailing-comment bodies should be skipped"
         );
     }
 }
