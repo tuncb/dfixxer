@@ -15,6 +15,7 @@ A command-line tool that reformats Delphi/Pascal files.
 - Fixes indentation of local routine blocks
 - Rewrites conservative routine-local `var` blocks into inline `var` / `const` definitions when every declared variable can be safely handled
 - Trims trailing whitespace
+- Ensures files end with a single trailing newline
 
 Exact behavior is configurable through `dfixxer.toml`, and individual transformation groups can be turned on or off.
 
@@ -369,6 +370,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
     - `assign_div` - Divide assignment `/=` (default: `"BeforeAndAfter"`)
   - Other:
     - `trim_trailing_whitespace` - Remove trailing whitespace (default: `true`)
+    - `ensure_single_trailing_newline` - Ensure the file ends with exactly one line ending (default: `true`)
     - `enforce_word_casing` - List of canonical identifier spellings to enforce in code (case-insensitive match; strings/comments are not changed) (default: `[]`)
 - **Space Operations**:
   - `"NoChange"` - Leave spacing as-is
@@ -457,6 +459,7 @@ space_inside_brace_comments = true
 space_inside_paren_star_comments = true
 space_after_line_comment_slashes = true
 trim_trailing_whitespace = true
+ensure_single_trailing_newline = true
 enforce_word_casing = ["HTTPClient", "iOS"]
 ```
 

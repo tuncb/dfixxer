@@ -1,4 +1,4 @@
-use crate::options::{SpaceOperation, TextChangeOptions};
+use crate::options::{LineEnding, SpaceOperation, TextChangeOptions};
 use crate::parser::SpacingContext;
 use crate::replacements::TextReplacement;
 use std::collections::HashMap;
@@ -28,6 +28,45 @@ pub fn apply_text_transformation_with_context(
         end,
         text: modified,
     })
+}
+
+pub fn apply_file_level_text_changes(
+    text: &str,
+    options: &TextChangeOptions,
+    line_ending: &LineEnding,
+) -> Option<String> {
+    if !options.ensure_single_trailing_newline {
+        return None;
+    }
+
+    let configured_line_ending = line_ending.to_string();
+    let preferred_line_ending = preferred_line_ending_for_eof(text, &configured_line_ending);
+    ensure_single_trailing_newline(text, preferred_line_ending)
+}
+
+fn preferred_line_ending_for_eof<'a>(text: &str, fallback: &'a str) -> &'a str {
+    let bytes = text.as_bytes();
+    for idx in (0..bytes.len()).rev() {
+        if bytes[idx] == b'\n' {
+            if idx > 0 && bytes[idx - 1] == b'\r' {
+                return "\r\n";
+            }
+            return "\n";
+        }
+    }
+
+    fallback
+}
+
+fn ensure_single_trailing_newline(text: &str, line_ending: &str) -> Option<String> {
+    let trimmed = text.trim_end_matches(&['\r', '\n'][..]);
+    let normalized = format!("{trimmed}{line_ending}");
+
+    if normalized == text {
+        None
+    } else {
+        Some(normalized)
+    }
 }
 
 /// Helper function to determine if space should be added before a character/operator
@@ -1649,6 +1688,39 @@ mod tests {
         let text = "Line 1   \nLine 2\t\t\nLine 3 ";
         let result = apply_text_changes(text, &options, 0, None);
         assert_eq!(result.unwrap(), "Line 1\nLine 2\nLine 3");
+    }
+
+    #[test]
+    fn test_apply_file_level_text_changes_adds_missing_trailing_newline() {
+        let text = "end.";
+        let options = TextChangeOptions::default();
+
+        let result = apply_file_level_text_changes(text, &options, &LineEnding::Lf);
+
+        assert_eq!(result.unwrap(), "end.\n");
+    }
+
+    #[test]
+    fn test_apply_file_level_text_changes_collapses_extra_trailing_newlines() {
+        let text = "unit Foo;\ninterface\nend.\n\n\n";
+        let options = TextChangeOptions::default();
+
+        let result = apply_file_level_text_changes(text, &options, &LineEnding::Crlf);
+
+        assert_eq!(result.unwrap(), "unit Foo;\ninterface\nend.\n");
+    }
+
+    #[test]
+    fn test_apply_file_level_text_changes_respects_disabled_option() {
+        let text = "end.";
+        let options = TextChangeOptions {
+            ensure_single_trailing_newline: false,
+            ..Default::default()
+        };
+
+        let result = apply_file_level_text_changes(text, &options, &LineEnding::Lf);
+
+        assert!(result.is_none());
     }
 
     #[test]

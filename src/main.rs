@@ -17,9 +17,7 @@ mod transform_text;
 mod transform_unit_program_section;
 mod transform_uses_section;
 mod transformer_utility;
-use replacements::{
-    TextReplacement, apply_replacements_to_string, compute_source_sections, merge_replacements,
-};
+use replacements::{TextReplacement, apply_replacements_to_string, compute_source_sections};
 mod parser;
 use parser::{parse, parse_with_contexts};
 mod suppression;
@@ -96,7 +94,7 @@ fn process_file(
     filename: &str,
     config_path: Option<&str>,
     timing: &mut TimingCollector,
-) -> Result<(String, Vec<TextReplacement>), DFixxerError> {
+) -> Result<(String, String, usize), DFixxerError> {
     // Load options from config file, or use defaults if not found
     let config_path = config_path.unwrap_or("dfixxer.toml");
     let initial_options: Options = Options::load_or_default(config_path);
@@ -271,7 +269,30 @@ fn process_file(
         !suppression_context.suppresses_replacement(replacement.start, replacement.end)
     });
 
-    Ok((source, replacements))
+    let mut replacement_count = replacements.len();
+    let mut updated_source = if replacements.is_empty() {
+        source.clone()
+    } else {
+        timing.time_operation("Applying replacements (in-memory)", || {
+            apply_replacements_to_string(&source, &replacements)
+        })
+    };
+
+    if options.transformations.enable_text_transformations
+        && let Some(file_level_update) =
+            timing.time_operation("File-level text transformations", || {
+                transform_text::apply_file_level_text_changes(
+                    &updated_source,
+                    &options.text_changes,
+                    &options.line_ending,
+                )
+            })
+    {
+        updated_source = file_level_update;
+        replacement_count += 1;
+    }
+
+    Ok((source, updated_source, replacement_count))
 }
 
 fn run() -> Result<i32, DFixxerError> {
@@ -352,13 +373,12 @@ fn run() -> Result<i32, DFixxerError> {
             Command::UpdateFile => {
                 let mut timing = TimingCollector::new();
 
-                let (source, replacements) =
+                let (source, updated_source, _) =
                     process_file(filename, arguments.config_path.as_deref(), &mut timing)?;
 
-                // Time applying replacements
-                if !replacements.is_empty() {
-                    timing.time_operation_result("Applying replacements", || {
-                        merge_replacements(filename, &source, replacements)
+                if source != updated_source {
+                    timing.time_operation_result("Writing updated file", || {
+                        std::fs::write(filename, &updated_source).map_err(DFixxerError::from)
                     })?;
                 }
 
@@ -369,14 +389,10 @@ fn run() -> Result<i32, DFixxerError> {
             Command::CheckFile => {
                 let mut timing = TimingCollector::new();
 
-                let (source, replacements) =
+                let (source, updated_source, replacement_count) =
                     process_file(filename, arguments.config_path.as_deref(), &mut timing)?;
 
-                if !replacements.is_empty() {
-                    let updated_source = timing
-                        .time_operation("Applying replacements (in-memory)", || {
-                            apply_replacements_to_string(&source, &replacements)
-                        });
+                if source != updated_source {
                     let patch = timing.time_operation("Diff generation", || {
                         create_patch(&source, &updated_source)
                     });
@@ -387,7 +403,7 @@ fn run() -> Result<i32, DFixxerError> {
                 timing.log_summary();
 
                 // Return the number of replacements as exit code
-                replacements.len() as i32
+                replacement_count as i32
             }
             Command::InitConfig => {
                 // InitConfig doesn't use multi mode, so just process first file

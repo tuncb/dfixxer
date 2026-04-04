@@ -1,5 +1,3 @@
-use crate::dfixxer_error::DFixxerError;
-
 #[derive(Debug, Clone)]
 pub struct TextReplacement {
     pub start: usize,
@@ -54,20 +52,6 @@ pub fn compute_source_sections(
     }
 
     sections
-}
-
-pub fn merge_replacements(
-    filename: &str,
-    original_source: &str,
-    replacements: Vec<TextReplacement>,
-) -> Result<(), DFixxerError> {
-    if replacements.is_empty() {
-        return Ok(());
-    }
-
-    let out = apply_replacements_to_string(original_source, &replacements);
-    std::fs::write(filename, out)?;
-    Ok(())
 }
 
 pub fn apply_replacements_to_string(

@@ -388,3 +388,6 @@ skip_terminating_while_body_wrapping = true
 skip_terminating_if_body_wrapping = true
 enable_inherited_call_expansion = true
 enable_text_transformations = true
+
+[text_changes]
+ensure_single_trailing_newline = true

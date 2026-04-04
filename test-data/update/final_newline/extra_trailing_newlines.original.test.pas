@@ -1,7 +1,9 @@
-unit up1;
+unit FinalNewlineExtra;
 
 interface
 
 implementation
 
 end.
+
+
