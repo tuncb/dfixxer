@@ -42,6 +42,8 @@ dfixxer [GLOBAL_OPTIONS] <COMMAND> [COMMAND_OPTIONS]
 - `-l, --log-level <LEVEL>`: Set the logging level
   - Possible values: `off`, `error`, `warn`, `info`, `debug`, `trace`
   - Default: No logging output
+  - `info` includes a performance summary on stderr with stage timings, parse subtimings, rule timings, and text-transformation counters
+  - `debug` additionally logs individual stage durations as they complete
 
 ### Commands
 

@@ -19,7 +19,10 @@ mod transform_uses_section;
 mod transformer_utility;
 use replacements::{TextReplacement, apply_replacements_to_string, compute_source_sections};
 mod parser;
-use parser::{parse, parse_with_contexts};
+use parser::{
+    ControlStatementBodyWrappingContext, ControlStatementKind, ParseContextTimings, parse,
+    parse_with_contexts_and_timings,
+};
 mod suppression;
 
 use crate::suppression::collect_suppression_context;
@@ -32,22 +35,90 @@ use crate::transform_procedure_section::transform_procedure_section;
 use crate::transform_single_keyword_sections::transform_single_keyword_section;
 use crate::transform_unit_program_section::transform_unit_program_section;
 use crate::transform_uses_section::transform_uses_section;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-/// A timing collector that tracks multiple operations and can provide summaries
-struct TimingCollector {
-    timings: HashMap<String, Duration>,
+#[derive(Debug, Clone, Default)]
+struct RulePerformanceSummary {
+    candidates: usize,
+    replacements: usize,
+    duration: Duration,
 }
 
-impl TimingCollector {
+/// Collects top-level timings plus fine-grained parser, rule, and text-rule metrics.
+struct PerformanceCollector {
+    stage_timings: BTreeMap<String, Duration>,
+    parse_timings: BTreeMap<String, Duration>,
+    rule_timings: BTreeMap<String, RulePerformanceSummary>,
+    text_stats: transform_text::TextTransformationStats,
+}
+
+impl PerformanceCollector {
     fn new() -> Self {
         Self {
-            timings: HashMap::new(),
+            stage_timings: BTreeMap::new(),
+            parse_timings: BTreeMap::new(),
+            rule_timings: BTreeMap::new(),
+            text_stats: transform_text::TextTransformationStats::default(),
         }
     }
 
-    /// Time an operation and store the result
+    fn record_stage_duration(&mut self, operation_name: &str, duration: Duration) {
+        self.stage_timings
+            .entry(operation_name.to_string())
+            .and_modify(|total| *total += duration)
+            .or_insert(duration);
+    }
+
+    fn record_parse_timings(&mut self, parse_timings: &ParseContextTimings) {
+        self.parse_timings
+            .insert("build tree".to_string(), parse_timings.build_tree);
+        self.parse_timings.insert(
+            "collect code sections".to_string(),
+            parse_timings.collect_code_sections,
+        );
+        self.parse_timings.insert(
+            "collect spacing context".to_string(),
+            parse_timings.collect_spacing_context,
+        );
+        self.parse_timings.insert(
+            "collect inherited call expansion context".to_string(),
+            parse_timings.collect_inherited_call_expansion_context,
+        );
+        self.parse_timings.insert(
+            "collect local routine spacing context".to_string(),
+            parse_timings.collect_local_routine_spacing_context,
+        );
+        self.parse_timings.insert(
+            "collect control body wrapping context".to_string(),
+            parse_timings.collect_control_statement_body_wrapping_context,
+        );
+        self.parse_timings.insert(
+            "collect inline local var definition context".to_string(),
+            parse_timings.collect_inline_local_var_definition_context,
+        );
+    }
+
+    fn record_rule_timing(
+        &mut self,
+        rule_name: &str,
+        candidates: usize,
+        replacements: usize,
+        duration: Duration,
+    ) {
+        if candidates == 0 && replacements == 0 {
+            return;
+        }
+        let stats = self.rule_timings.entry(rule_name.to_string()).or_default();
+        stats.candidates += candidates;
+        stats.replacements += replacements;
+        stats.duration += duration;
+    }
+
+    fn record_text_stats(&mut self, stats: transform_text::TextTransformationStats) {
+        self.text_stats.merge(stats);
+    }
+
     fn time_operation<T, F>(&mut self, operation_name: &str, operation: F) -> T
     where
         F: FnOnce() -> T,
@@ -56,11 +127,10 @@ impl TimingCollector {
         let result = operation();
         let duration = start.elapsed();
         log::debug!("{} took: {:?}", operation_name, duration);
-        self.timings.insert(operation_name.to_string(), duration);
+        self.record_stage_duration(operation_name, duration);
         result
     }
 
-    /// Time a fallible operation and store the result
     fn time_operation_result<T, E, F>(&mut self, operation_name: &str, operation: F) -> Result<T, E>
     where
         F: FnOnce() -> Result<T, E>,
@@ -69,19 +139,76 @@ impl TimingCollector {
         let result = operation();
         let duration = start.elapsed();
         log::debug!("{} took: {:?}", operation_name, duration);
-        self.timings.insert(operation_name.to_string(), duration);
+        self.record_stage_duration(operation_name, duration);
         result
     }
 
-    /// Log a summary of all collected timings
     fn log_summary(&self) {
-        let total_processing: Duration = self.timings.values().sum();
+        let total_processing: Duration = self.stage_timings.values().copied().sum();
 
         log::info!("Performance summary:");
-        for (operation, duration) in &self.timings {
-            log::info!("  {}: {:?}", operation, duration);
+        if !self.stage_timings.is_empty() {
+            log::info!("  Stage timings:");
+            for (operation, duration) in &self.stage_timings {
+                log::info!("    {}: {:?}", operation, duration);
+            }
+        }
+        if !self.parse_timings.is_empty() {
+            log::info!("  Parse substage timings:");
+            for (operation, duration) in &self.parse_timings {
+                log::info!("    {}: {:?}", operation, duration);
+            }
+        }
+        if !self.rule_timings.is_empty() {
+            log::info!("  Rule timings:");
+            for (rule_name, stats) in &self.rule_timings {
+                log::info!(
+                    "    {}: candidates={} replacements={} total={:?}",
+                    rule_name,
+                    stats.candidates,
+                    stats.replacements,
+                    stats.duration
+                );
+            }
+        }
+        if !self.text_stats.is_empty() {
+            log::info!(
+                "  Text transformation counters: sections={} changed_sections={} bytes={} skipped_error_ranges={} file_level_runs={} file_level_changes={}",
+                self.text_stats.sections_processed,
+                self.text_stats.sections_changed,
+                self.text_stats.bytes_processed,
+                self.text_stats.skipped_error_ranges,
+                self.text_stats.file_level_runs,
+                self.text_stats.file_level_changes
+            );
+            for (rule_name, stats) in self.text_stats.rule_stats() {
+                log::info!(
+                    "    {}: hits={} changes={} skips={}",
+                    rule_name,
+                    stats.hits,
+                    stats.changes,
+                    stats.skips
+                );
+            }
         }
         log::info!("  Total processing: {:?}", total_processing);
+    }
+}
+
+fn filtered_control_statement_context<F>(
+    context: &ControlStatementBodyWrappingContext,
+    predicate: F,
+) -> ControlStatementBodyWrappingContext
+where
+    F: Fn(&ControlStatementKind) -> bool,
+{
+    ControlStatementBodyWrappingContext {
+        candidates: context
+            .candidates
+            .iter()
+            .filter(|candidate| predicate(&candidate.kind))
+            .cloned()
+            .collect(),
     }
 }
 
@@ -93,7 +220,7 @@ fn load_file(filename: &str) -> Result<String, DFixxerError> {
 fn process_file(
     filename: &str,
     config_path: Option<&str>,
-    timing: &mut TimingCollector,
+    timing: &mut PerformanceCollector,
 ) -> Result<(String, String, usize), DFixxerError> {
     // Load options from config file, or use defaults if not found
     let config_path = config_path.unwrap_or("dfixxer.toml");
@@ -133,7 +260,9 @@ fn process_file(
         local_routine_spacing_context,
         control_statement_body_wrapping_context,
         inline_local_var_definition_context,
-    ) = timing.time_operation_result("Parsing", || parse_with_contexts(&source))?;
+        parse_context_timings,
+    ) = timing.time_operation_result("Parsing", || parse_with_contexts_and_timings(&source))?;
+    timing.record_parse_timings(&parse_context_timings);
     if !spacing_context.error_ranges.is_empty() {
         let message = format!(
             "Parser recovered with {} error span(s) in '{}'; text changes are skipped inside error spans.",
@@ -145,97 +274,257 @@ fn process_file(
     }
 
     // Helper function to apply text transformations to a replacement if enabled
+    let mut text_stats = transform_text::TextTransformationStats::default();
     let apply_text_transformation_if_enabled =
-        |replacement: TextReplacement| -> Option<TextReplacement> {
+        |replacement: TextReplacement,
+         text_stats: &mut transform_text::TextTransformationStats|
+         -> Option<TextReplacement> {
             if options.transformations.enable_text_transformations {
                 let text = replacement.text.as_str();
-                transform_text::apply_text_transformation_with_context(
+                transform_text::apply_text_transformation_with_context_and_stats(
                     replacement.start,
                     replacement.end,
                     text,
                     &options.text_changes,
                     Some(&spacing_context),
+                    text_stats,
                 )
-                .or(Some(replacement)) // Return original if no changes needed
+                .or(Some(replacement))
             } else {
                 Some(replacement)
             }
         };
 
-    // Time transformation
-    let mut replacements: Vec<TextReplacement> = timing.time_operation("Transformation", || {
-        let mut replacements: Vec<TextReplacement> = parse_result
+    let transformation_start = Instant::now();
+    let mut replacements: Vec<TextReplacement> = Vec::new();
+
+    if options.transformations.enable_uses_section {
+        let uses_sections: Vec<_> = parse_result
             .code_sections
             .iter()
-            .filter_map(|code_section| match code_section.keyword.kind {
-                parser::Kind::Uses if options.transformations.enable_uses_section => {
-                    transform_uses_section(code_section, &options, &source)
-                }
-                parser::Kind::Unit | parser::Kind::Program
-                    if options.transformations.enable_unit_program_section =>
-                {
-                    transform_unit_program_section(code_section, &options, &source)
-                }
-                parser::Kind::Interface
-                | parser::Kind::Implementation
-                | parser::Kind::Initialization
-                | parser::Kind::Finalization
-                    if options.transformations.enable_single_keyword_sections =>
-                {
-                    transform_single_keyword_section(&source, code_section, &options)
-                }
-                parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration
-                    if options.transformations.enable_procedure_section =>
-                {
-                    transform_procedure_section(code_section, &options, &source)
-                        .and_then(apply_text_transformation_if_enabled)
-                }
-                _ => None,
+            .filter(|code_section| code_section.keyword.kind == parser::Kind::Uses)
+            .collect();
+        let rule_start = Instant::now();
+        let rule_replacements: Vec<_> = uses_sections
+            .iter()
+            .filter_map(|code_section| transform_uses_section(code_section, &options, &source))
+            .collect();
+        timing.record_rule_timing(
+            "uses_section",
+            uses_sections.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_unit_program_section {
+        let unit_program_sections: Vec<_> = parse_result
+            .code_sections
+            .iter()
+            .filter(|code_section| {
+                matches!(
+                    code_section.keyword.kind,
+                    parser::Kind::Unit | parser::Kind::Program
+                )
             })
             .collect();
-
-        if options.transformations.enable_inherited_call_expansion {
-            let inherited_replacements = transform_inherited_calls(&inherited_expansion_context)
-                .into_iter()
-                .filter_map(apply_text_transformation_if_enabled);
-            replacements.extend(inherited_replacements);
-        }
-
-        if options.transformations.enable_local_routine_indentation {
-            let local_routine_replacements = transform_local_routine_indentation(
-                &source,
-                &local_routine_spacing_context,
-                &options,
-            );
-            replacements.extend(local_routine_replacements);
-        }
-
-        if options.transformations.enable_local_routine_spacing {
-            let local_routine_replacements =
-                transform_local_routine_spacing(&source, &local_routine_spacing_context, &options);
-            replacements.extend(local_routine_replacements);
-        }
-
-        if options.transformations.enable_inline_local_var_definitions {
-            let inline_local_replacements = transform_inline_local_var_definitions(
-                &source,
-                &inline_local_var_definition_context,
-                &options,
-            )
-            .into_iter()
-            .filter_map(apply_text_transformation_if_enabled);
-            replacements.extend(inline_local_replacements);
-        }
-
-        let control_statement_replacements = transform_control_statement_body_wrapping(
-            &source,
-            &control_statement_body_wrapping_context,
-            &options,
+        let rule_start = Instant::now();
+        let rule_replacements: Vec<_> = unit_program_sections
+            .iter()
+            .filter_map(|code_section| {
+                transform_unit_program_section(code_section, &options, &source)
+            })
+            .collect();
+        timing.record_rule_timing(
+            "unit_program_section",
+            unit_program_sections.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
         );
-        replacements.extend(control_statement_replacements);
+        replacements.extend(rule_replacements);
+    }
 
-        replacements
-    });
+    if options.transformations.enable_single_keyword_sections {
+        let single_keyword_sections: Vec<_> = parse_result
+            .code_sections
+            .iter()
+            .filter(|code_section| {
+                matches!(
+                    code_section.keyword.kind,
+                    parser::Kind::Interface
+                        | parser::Kind::Implementation
+                        | parser::Kind::Initialization
+                        | parser::Kind::Finalization
+                )
+            })
+            .collect();
+        let rule_start = Instant::now();
+        let rule_replacements: Vec<_> = single_keyword_sections
+            .iter()
+            .filter_map(|code_section| {
+                transform_single_keyword_section(&source, code_section, &options)
+            })
+            .collect();
+        timing.record_rule_timing(
+            "single_keyword_sections",
+            single_keyword_sections.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_procedure_section {
+        let procedure_sections: Vec<_> = parse_result
+            .code_sections
+            .iter()
+            .filter(|code_section| {
+                matches!(
+                    code_section.keyword.kind,
+                    parser::Kind::ProcedureDeclaration | parser::Kind::FunctionDeclaration
+                )
+            })
+            .collect();
+        let rule_start = Instant::now();
+        let rule_replacements: Vec<_> = procedure_sections
+            .iter()
+            .filter_map(|code_section| transform_procedure_section(code_section, &options, &source))
+            .filter_map(|replacement| {
+                apply_text_transformation_if_enabled(replacement, &mut text_stats)
+            })
+            .collect();
+        timing.record_rule_timing(
+            "procedure_section",
+            procedure_sections.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_inherited_call_expansion {
+        let rule_start = Instant::now();
+        let rule_replacements: Vec<_> = transform_inherited_calls(&inherited_expansion_context)
+            .into_iter()
+            .filter_map(|replacement| {
+                apply_text_transformation_if_enabled(replacement, &mut text_stats)
+            })
+            .collect();
+        timing.record_rule_timing(
+            "inherited_call_expansion",
+            inherited_expansion_context.candidates.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_local_routine_indentation {
+        let rule_start = Instant::now();
+        let rule_replacements =
+            transform_local_routine_indentation(&source, &local_routine_spacing_context, &options);
+        timing.record_rule_timing(
+            "local_routine_indentation",
+            local_routine_spacing_context.blocks.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_local_routine_spacing {
+        let rule_start = Instant::now();
+        let rule_replacements =
+            transform_local_routine_spacing(&source, &local_routine_spacing_context, &options);
+        timing.record_rule_timing(
+            "local_routine_spacing",
+            local_routine_spacing_context.gaps.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_inline_local_var_definitions {
+        let rule_start = Instant::now();
+        let rule_replacements: Vec<_> = transform_inline_local_var_definitions(
+            &source,
+            &inline_local_var_definition_context,
+            &options,
+        )
+        .into_iter()
+        .filter_map(|replacement| {
+            apply_text_transformation_if_enabled(replacement, &mut text_stats)
+        })
+        .collect();
+        timing.record_rule_timing(
+            "inline_local_var_definitions",
+            inline_local_var_definition_context.routines.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_for_body_wrapping {
+        let for_context =
+            filtered_control_statement_context(&control_statement_body_wrapping_context, |kind| {
+                matches!(
+                    kind,
+                    ControlStatementKind::For | ControlStatementKind::Foreach
+                )
+            });
+        let rule_start = Instant::now();
+        let rule_replacements =
+            transform_control_statement_body_wrapping(&source, &for_context, &options);
+        timing.record_rule_timing(
+            "control_body_wrapping.for_foreach",
+            for_context.candidates.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_while_body_wrapping {
+        let while_context =
+            filtered_control_statement_context(&control_statement_body_wrapping_context, |kind| {
+                matches!(kind, ControlStatementKind::While)
+            });
+        let rule_start = Instant::now();
+        let rule_replacements =
+            transform_control_statement_body_wrapping(&source, &while_context, &options);
+        timing.record_rule_timing(
+            "control_body_wrapping.while",
+            while_context.candidates.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    if options.transformations.enable_if_body_wrapping {
+        let if_else_context =
+            filtered_control_statement_context(&control_statement_body_wrapping_context, |kind| {
+                matches!(
+                    kind,
+                    ControlStatementKind::IfThen | ControlStatementKind::Else
+                )
+            });
+        let rule_start = Instant::now();
+        let rule_replacements =
+            transform_control_statement_body_wrapping(&source, &if_else_context, &options);
+        timing.record_rule_timing(
+            "control_body_wrapping.if_else",
+            if_else_context.candidates.len(),
+            rule_replacements.len(),
+            rule_start.elapsed(),
+        );
+        replacements.extend(rule_replacements);
+    }
+
+    timing.record_stage_duration("Transformation", transformation_start.elapsed());
     replacements.retain(|replacement| {
         !suppression_context.suppresses_replacement(replacement.start, replacement.end)
     });
@@ -253,13 +542,16 @@ fn process_file(
             // Apply text transformation to each section and add to replacements if there's a change
             for section in sections {
                 let text = &source[section.start..section.end];
-                if let Some(transformation) = transform_text::apply_text_transformation_with_context(
-                    section.start,
-                    section.end,
-                    text,
-                    &options.text_changes,
-                    Some(&spacing_context),
-                ) {
+                if let Some(transformation) =
+                    transform_text::apply_text_transformation_with_context_and_stats(
+                        section.start,
+                        section.end,
+                        text,
+                        &options.text_changes,
+                        Some(&spacing_context),
+                        &mut text_stats,
+                    )
+                {
                     replacements.push(transformation);
                 }
             }
@@ -281,16 +573,19 @@ fn process_file(
     if options.transformations.enable_text_transformations
         && let Some(file_level_update) =
             timing.time_operation("File-level text transformations", || {
-                transform_text::apply_file_level_text_changes(
+                transform_text::apply_file_level_text_changes_with_stats(
                     &updated_source,
                     &options.text_changes,
                     &options.line_ending,
+                    &mut text_stats,
                 )
             })
     {
         updated_source = file_level_update;
         replacement_count += 1;
     }
+
+    timing.record_text_stats(text_stats);
 
     Ok((source, updated_source, replacement_count))
 }
@@ -371,7 +666,7 @@ fn run() -> Result<i32, DFixxerError> {
 
         let exit_code = match arguments.command {
             Command::UpdateFile => {
-                let mut timing = TimingCollector::new();
+                let mut timing = PerformanceCollector::new();
 
                 let (source, updated_source, _) =
                     process_file(filename, arguments.config_path.as_deref(), &mut timing)?;
@@ -387,7 +682,7 @@ fn run() -> Result<i32, DFixxerError> {
                 0
             }
             Command::CheckFile => {
-                let mut timing = TimingCollector::new();
+                let mut timing = PerformanceCollector::new();
 
                 let (source, updated_source, replacement_count) =
                     process_file(filename, arguments.config_path.as_deref(), &mut timing)?;

@@ -17,6 +17,51 @@ fn test_help_output() {
     assert!(stdout.contains("Usage"));
 }
 
+#[test]
+fn test_info_logging_includes_fine_grained_performance_summary_on_stderr() {
+    let source = Path::new("test-data")
+        .join("update")
+        .join("ex1.original.test.pas");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_dfixxer"))
+        .args(["--log-level", "info", "check"])
+        .arg(&source)
+        .output()
+        .expect("Failed to run dfixxer with info logging");
+
+    assert!(
+        output.status.code().unwrap_or(1) > 0,
+        "Expected non-zero replacement count for check command"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Performance summary:"),
+        "Expected performance summary in stderr, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Stage timings:"),
+        "Expected stage timings section in stderr, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Parse substage timings:"),
+        "Expected parse substage timings section in stderr, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Rule timings:"),
+        "Expected rule timings section in stderr, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Text transformation counters:"),
+        "Expected text transformation counters section in stderr, got:\n{}",
+        stderr
+    );
+}
+
 fn create_unique_temp_dir() -> std::path::PathBuf {
     let mut temp_path = env::temp_dir();
     let unique = SystemTime::now()

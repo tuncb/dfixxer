@@ -1,7 +1,131 @@
 use crate::options::{LineEnding, SpaceOperation, TextChangeOptions};
 use crate::parser::SpacingContext;
 use crate::replacements::TextReplacement;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+
+const RULE_COMMA: &str = "comma";
+const RULE_SEMI_COLON: &str = "semi_colon";
+const RULE_LT: &str = "lt";
+const RULE_EQ: &str = "eq";
+const RULE_NEQ: &str = "neq";
+const RULE_GT: &str = "gt";
+const RULE_LTE: &str = "lte";
+const RULE_GTE: &str = "gte";
+const RULE_ADD: &str = "add";
+const RULE_SUB: &str = "sub";
+const RULE_MUL: &str = "mul";
+const RULE_FDIV: &str = "fdiv";
+const RULE_ASSIGN: &str = "assign";
+const RULE_ASSIGN_ADD: &str = "assign_add";
+const RULE_ASSIGN_SUB: &str = "assign_sub";
+const RULE_ASSIGN_MUL: &str = "assign_mul";
+const RULE_ASSIGN_DIV: &str = "assign_div";
+const RULE_COLON: &str = "colon";
+const RULE_COLON_NUMERIC_EXCEPTION: &str = "colon_numeric_exception";
+const RULE_BRACE_COMMENT_SPACING: &str = "space_inside_brace_comments";
+const RULE_PAREN_STAR_COMMENT_SPACING: &str = "space_inside_paren_star_comments";
+const RULE_LINE_COMMENT_SLASH_SPACING: &str = "space_after_line_comment_slashes";
+const RULE_TRIM_TRAILING_WHITESPACE: &str = "trim_trailing_whitespace";
+const RULE_ENSURE_SINGLE_TRAILING_NEWLINE: &str = "ensure_single_trailing_newline";
+const RULE_ENFORCE_WORD_CASING: &str = "enforce_word_casing";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TextRuleStats {
+    pub hits: usize,
+    pub changes: usize,
+    pub skips: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TextTransformationStats {
+    pub sections_processed: usize,
+    pub sections_changed: usize,
+    pub bytes_processed: usize,
+    pub skipped_error_ranges: usize,
+    pub file_level_runs: usize,
+    pub file_level_changes: usize,
+    rule_stats: BTreeMap<&'static str, TextRuleStats>,
+}
+
+impl TextTransformationStats {
+    pub fn merge(&mut self, other: Self) {
+        self.sections_processed += other.sections_processed;
+        self.sections_changed += other.sections_changed;
+        self.bytes_processed += other.bytes_processed;
+        self.skipped_error_ranges += other.skipped_error_ranges;
+        self.file_level_runs += other.file_level_runs;
+        self.file_level_changes += other.file_level_changes;
+        for (rule_name, other_stats) in other.rule_stats {
+            let stats = self.rule_stats.entry(rule_name).or_default();
+            stats.hits += other_stats.hits;
+            stats.changes += other_stats.changes;
+            stats.skips += other_stats.skips;
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sections_processed == 0
+            && self.sections_changed == 0
+            && self.bytes_processed == 0
+            && self.skipped_error_ranges == 0
+            && self.file_level_runs == 0
+            && self.file_level_changes == 0
+            && self.rule_stats.is_empty()
+    }
+
+    pub fn rule_stats(&self) -> impl Iterator<Item = (&'static str, &TextRuleStats)> + '_ {
+        self.rule_stats
+            .iter()
+            .map(|(rule_name, stats)| (*rule_name, stats))
+    }
+
+    fn record_section(&mut self, bytes: usize) {
+        self.sections_processed += 1;
+        self.bytes_processed += bytes;
+    }
+
+    fn record_changed_section(&mut self) {
+        self.sections_changed += 1;
+    }
+
+    fn record_skipped_error_ranges(&mut self, count: usize) {
+        self.skipped_error_ranges += count;
+    }
+
+    fn record_rule(&mut self, rule_name: &'static str, changed: bool) {
+        let stats = self.rule_stats.entry(rule_name).or_default();
+        stats.hits += 1;
+        if changed {
+            stats.changes += 1;
+        }
+    }
+
+    fn record_skip(&mut self, rule_name: &'static str) {
+        let stats = self.rule_stats.entry(rule_name).or_default();
+        stats.hits += 1;
+        stats.skips += 1;
+    }
+
+    fn record_file_level_run(&mut self, changed: bool) {
+        self.file_level_runs += 1;
+        if changed {
+            self.file_level_changes += 1;
+        }
+    }
+}
+
+fn with_text_stats<F>(stats: &mut Option<&mut TextTransformationStats>, record: F)
+where
+    F: FnOnce(&mut TextTransformationStats),
+{
+    if let Some(stats) = stats.as_deref_mut() {
+        record(stats);
+    }
+}
+
+fn is_rule_enabled(operation: &SpaceOperation) -> bool {
+    !matches!(operation, SpaceOperation::NoChange)
+}
 
 /// Apply text transformations based on the given options to a text string
 /// Returns None if there are no changes, Some(replacement) if changes are made
@@ -23,17 +147,47 @@ pub fn apply_text_transformation_with_context(
     options: &TextChangeOptions,
     context: Option<&SpacingContext>,
 ) -> Option<TextReplacement> {
-    apply_text_changes(text, options, start, context).map(|modified| TextReplacement {
+    apply_text_changes(text, options, start, context, None).map(|modified| TextReplacement {
         start,
         end,
         text: modified,
     })
 }
 
+pub fn apply_text_transformation_with_context_and_stats(
+    start: usize,
+    end: usize,
+    text: &str,
+    options: &TextChangeOptions,
+    context: Option<&SpacingContext>,
+    stats: &mut TextTransformationStats,
+) -> Option<TextReplacement> {
+    apply_text_changes(text, options, start, context, Some(stats)).map(|modified| TextReplacement {
+        start,
+        end,
+        text: modified,
+    })
+}
+
+#[allow(dead_code)]
 pub fn apply_file_level_text_changes(
     text: &str,
     options: &TextChangeOptions,
     line_ending: &LineEnding,
+) -> Option<String> {
+    apply_file_level_text_changes_with_stats(
+        text,
+        options,
+        line_ending,
+        &mut TextTransformationStats::default(),
+    )
+}
+
+pub fn apply_file_level_text_changes_with_stats(
+    text: &str,
+    options: &TextChangeOptions,
+    line_ending: &LineEnding,
+    stats: &mut TextTransformationStats,
 ) -> Option<String> {
     if !options.ensure_single_trailing_newline {
         return None;
@@ -41,7 +195,10 @@ pub fn apply_file_level_text_changes(
 
     let configured_line_ending = line_ending.to_string();
     let preferred_line_ending = preferred_line_ending_for_eof(text, &configured_line_ending);
-    ensure_single_trailing_newline(text, preferred_line_ending)
+    let changed = ensure_single_trailing_newline(text, preferred_line_ending);
+    stats.record_file_level_run(changed.is_some());
+    stats.record_rule(RULE_ENSURE_SINGLE_TRAILING_NEWLINE, changed.is_some());
+    changed
 }
 
 fn preferred_line_ending_for_eof<'a>(text: &str, fallback: &'a str) -> &'a str {
@@ -118,7 +275,7 @@ fn active_buf<'a>(
     if do_trim { current_line } else { result }
 }
 
-fn remove_trailing_ws(buf: &mut String) {
+fn remove_trailing_ws(buf: &mut String) -> bool {
     // Preserve leading indentation when an operator starts a line.
     let mut line_has_non_ws = false;
     for ch in buf.chars().rev() {
@@ -132,9 +289,10 @@ fn remove_trailing_ws(buf: &mut String) {
     }
 
     if !line_has_non_ws {
-        return;
+        return false;
     }
 
+    let original_len = buf.len();
     while let Some(last) = buf.chars().last() {
         if last == ' ' || last == '\t' {
             buf.pop();
@@ -142,6 +300,8 @@ fn remove_trailing_ws(buf: &mut String) {
             break;
         }
     }
+
+    buf.len() != original_len
 }
 
 fn current_line_has_non_ws(buf: &str) -> bool {
@@ -156,38 +316,49 @@ fn current_line_has_non_ws(buf: &str) -> bool {
     false
 }
 
-fn remove_trailing_horizontal_ws(buf: &mut String) {
+fn remove_trailing_horizontal_ws(buf: &mut String) -> usize {
+    let mut removed = 0usize;
     while let Some(last) = buf.chars().last() {
         if last == ' ' || last == '\t' {
             buf.pop();
+            removed += 1;
         } else {
             break;
         }
     }
+
+    removed
 }
 
-fn ensure_one_space_before(buf: &mut String) {
+fn ensure_one_space_before(buf: &mut String) -> bool {
     if buf.is_empty() {
-        return;
+        return false;
     }
     if let Some(last) = buf.chars().last() {
         if last == '\n' || last == '\r' {
-            return;
+            return false;
         }
         if last != ' ' && last != '\t' {
             buf.push(' ');
+            return true;
         }
     }
+
+    false
 }
 
-fn consume_following_ws(chars: &mut CharIter<'_>) {
+fn consume_following_ws(chars: &mut CharIter<'_>) -> usize {
+    let mut consumed = 0usize;
     while let Some(&(_, c)) = chars.peek() {
         if c == ' ' || c == '\t' {
             chars.next();
+            consumed += 1;
         } else {
             break;
         }
     }
+
+    consumed
 }
 
 fn closes_brace_comment_on_current_line(chars: &CharIter<'_>) -> bool {
@@ -218,35 +389,41 @@ fn closes_paren_star_comment_on_current_line(chars: &CharIter<'_>) -> bool {
     false
 }
 
-fn maybe_add_space_after(op: &SpaceOperation, chars: &mut CharIter<'_>, buf: &mut String) {
+fn maybe_add_space_after(op: &SpaceOperation, chars: &mut CharIter<'_>, buf: &mut String) -> bool {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
             if let Some((_, nc)) = chars.peek().copied()
                 && !nc.is_whitespace()
             {
                 buf.push(' ');
+                return true;
             }
         }
         _ => {}
     }
+
+    false
 }
 
 // Wrapper functions for specific use cases
-fn one_space_before_if_needed(buf: &mut String, op_char: char) {
+fn one_space_before_if_needed(buf: &mut String, op_char: char) -> bool {
     if buf.is_empty() {
-        return;
+        return false;
     }
     if let Some(last) = buf.chars().last() {
         if last == '\n' || last == '\r' {
-            return;
+            return false;
         }
         if last == op_char {
-            return;
+            return false;
         }
         if last != ' ' && last != '\t' {
             buf.push(' ');
+            return true;
         }
     }
+
+    false
 }
 
 fn space_after_if_needed(
@@ -254,7 +431,7 @@ fn space_after_if_needed(
     chars: &mut CharIter<'_>,
     buf: &mut String,
     this_char: char,
-) {
+) -> bool {
     match op {
         SpaceOperation::After | SpaceOperation::BeforeAndAfter => {
             // Do not add space if the next char is identical (e.g., ++, --, ==)
@@ -263,9 +440,56 @@ fn space_after_if_needed(
                 && nc != this_char
             {
                 buf.push(' ');
+                return true;
             }
         }
         _ => {}
+    }
+
+    false
+}
+
+fn ensure_single_trailing_space(buf: &mut String) -> bool {
+    if !current_line_has_non_ws(buf) {
+        return false;
+    }
+
+    let mut trailing = Vec::new();
+    for ch in buf.chars().rev() {
+        if ch == '\n' || ch == '\r' {
+            break;
+        }
+        if ch == ' ' || ch == '\t' {
+            trailing.push(ch);
+        } else {
+            break;
+        }
+    }
+
+    let changed = !(trailing.len() == 1 && trailing[0] == ' ');
+    remove_trailing_horizontal_ws(buf);
+    buf.push(' ');
+    changed
+}
+
+fn flush_line_ending(
+    newline: char,
+    do_trim: bool,
+    current_line: &mut String,
+    result: &mut String,
+    stats: &mut Option<&mut TextTransformationStats>,
+) {
+    if do_trim {
+        let trimmed = current_line.trim_end();
+        let changed = trimmed.len() != current_line.len();
+        with_text_stats(stats, |stats| {
+            stats.record_rule(RULE_TRIM_TRAILING_WHITESPACE, changed)
+        });
+        result.push_str(trimmed);
+        current_line.clear();
+        result.push(newline);
+    } else {
+        result.push(newline);
     }
 }
 
@@ -275,11 +499,13 @@ fn handle_two_char_operator<'a, 'b, F>(
     second_char: char,
     operation: &SpaceOperation,
     ctx: &mut OperatorContext<'a, 'b, F>,
-) where
+) -> bool
+where
     F: Fn(char, &mut String, &mut String),
 {
     ctx.chars.next(); // consume the second character
     let push_char = ctx.push_char;
+    let mut changed = false;
     match operation {
         SpaceOperation::NoChange => {
             if should_add_space_before(operation, ctx.prev_char, first_char) {
@@ -293,20 +519,22 @@ fn handle_two_char_operator<'a, 'b, F>(
         }
         _ => {
             let buf = active_buf(ctx.do_trim, ctx.current_line, ctx.result);
-            remove_trailing_ws(buf);
+            changed |= remove_trailing_ws(buf);
             if matches!(
                 operation,
                 SpaceOperation::Before | SpaceOperation::BeforeAndAfter
             ) {
-                ensure_one_space_before(buf);
+                changed |= ensure_one_space_before(buf);
             }
             push_char(first_char, ctx.current_line, ctx.result);
             push_char(second_char, ctx.current_line, ctx.result);
-            consume_following_ws(ctx.chars);
+            changed |= consume_following_ws(ctx.chars) > 0;
             let buf = active_buf(ctx.do_trim, ctx.current_line, ctx.result);
-            maybe_add_space_after(operation, ctx.chars, buf);
+            changed |= maybe_add_space_after(operation, ctx.chars, buf);
         }
     }
+
+    changed
 }
 
 /// Helper function to handle multi-character operators
@@ -314,7 +542,7 @@ fn handle_operator<'a, 'b, F>(
     current_char: char,
     operation: &SpaceOperation,
     ctx: &mut OperatorContext<'a, 'b, F>,
-) -> Option<String>
+) -> Option<bool>
 where
     F: Fn(char, &mut String, &mut String),
 {
@@ -323,38 +551,14 @@ where
 
     match (current_char, next_char) {
         // Two-character operators
-        ('<', Some('=')) => {
-            handle_two_char_operator('<', '=', operation, ctx);
-            Some("<=".to_string())
-        }
-        ('<', Some('>')) => {
-            handle_two_char_operator('<', '>', operation, ctx);
-            Some("<>".to_string())
-        }
-        ('>', Some('=')) => {
-            handle_two_char_operator('>', '=', operation, ctx);
-            Some(">=".to_string())
-        }
-        (':', Some('=')) => {
-            handle_two_char_operator(':', '=', operation, ctx);
-            Some(":=".to_string())
-        }
-        ('+', Some('=')) => {
-            handle_two_char_operator('+', '=', operation, ctx);
-            Some("+=".to_string())
-        }
-        ('-', Some('=')) => {
-            handle_two_char_operator('-', '=', operation, ctx);
-            Some("-=".to_string())
-        }
-        ('*', Some('=')) => {
-            handle_two_char_operator('*', '=', operation, ctx);
-            Some("*=".to_string())
-        }
-        ('/', Some('=')) => {
-            handle_two_char_operator('/', '=', operation, ctx);
-            Some("/=".to_string())
-        }
+        ('<', Some('=')) => Some(handle_two_char_operator('<', '=', operation, ctx)),
+        ('<', Some('>')) => Some(handle_two_char_operator('<', '>', operation, ctx)),
+        ('>', Some('=')) => Some(handle_two_char_operator('>', '=', operation, ctx)),
+        (':', Some('=')) => Some(handle_two_char_operator(':', '=', operation, ctx)),
+        ('+', Some('=')) => Some(handle_two_char_operator('+', '=', operation, ctx)),
+        ('-', Some('=')) => Some(handle_two_char_operator('-', '=', operation, ctx)),
+        ('*', Some('=')) => Some(handle_two_char_operator('*', '=', operation, ctx)),
+        ('/', Some('=')) => Some(handle_two_char_operator('/', '=', operation, ctx)),
         _ => None, // Not a multi-character operator
     }
 }
@@ -527,11 +731,21 @@ fn apply_text_changes(
     options: &TextChangeOptions,
     start_offset: usize,
     context: Option<&SpacingContext>,
+    mut stats: Option<&mut TextTransformationStats>,
 ) -> Option<String> {
+    with_text_stats(&mut stats, |stats| stats.record_section(text.len()));
     let error_ranges = overlapping_error_ranges(context, start_offset, text.len());
     if error_ranges.is_empty() {
-        return apply_text_changes_core(text, options, start_offset, context);
+        let changed =
+            apply_text_changes_core(text, options, start_offset, context, stats.as_deref_mut());
+        if changed.is_some() {
+            with_text_stats(&mut stats, |stats| stats.record_changed_section());
+        }
+        return changed;
     }
+    with_text_stats(&mut stats, |stats| {
+        stats.record_skipped_error_ranges(error_ranges.len())
+    });
 
     let mut output = String::with_capacity(text.len());
     let mut cursor_abs = start_offset;
@@ -542,9 +756,13 @@ fn apply_text_changes(
             let rel_start = cursor_abs - start_offset;
             let rel_end = error_start - start_offset;
             let clean_segment = &text[rel_start..rel_end];
-            if let Some(changed) =
-                apply_text_changes_core(clean_segment, options, cursor_abs, context)
-            {
+            if let Some(changed) = apply_text_changes_core(
+                clean_segment,
+                options,
+                cursor_abs,
+                context,
+                stats.as_deref_mut(),
+            ) {
                 output.push_str(&changed);
             } else {
                 output.push_str(clean_segment);
@@ -560,15 +778,25 @@ fn apply_text_changes(
     if cursor_abs < span_end {
         let rel_start = cursor_abs - start_offset;
         let clean_segment = &text[rel_start..];
-        if let Some(changed) = apply_text_changes_core(clean_segment, options, cursor_abs, context)
-        {
+        if let Some(changed) = apply_text_changes_core(
+            clean_segment,
+            options,
+            cursor_abs,
+            context,
+            stats.as_deref_mut(),
+        ) {
             output.push_str(&changed);
         } else {
             output.push_str(clean_segment);
         }
     }
 
-    if output == text { None } else { Some(output) }
+    if output == text {
+        None
+    } else {
+        with_text_stats(&mut stats, |stats| stats.record_changed_section());
+        Some(output)
+    }
 }
 
 /// Apply all text changes to a text string based on the given options
@@ -577,6 +805,7 @@ fn apply_text_changes_core(
     options: &TextChangeOptions,
     start_offset: usize,
     context: Option<&SpacingContext>,
+    mut stats: Option<&mut TextTransformationStats>,
 ) -> Option<String> {
     // State machine to skip Delphi string literals and comments for spacing insertion.
     // We still may trim trailing whitespace (optionally) per line, but trimming is safe
@@ -595,7 +824,9 @@ fn apply_text_changes_core(
     let mut chars = text.char_indices().peekable();
     let mut prev_char: Option<char> = None;
     let mut brace_comment_apply_single_line_spacing = false;
+    let mut brace_comment_spacing_changed = false;
     let mut paren_star_comment_apply_single_line_spacing = false;
+    let mut paren_star_comment_spacing_changed = false;
     let enforce_word_casing_rules: HashMap<String, String> = options
         .enforce_word_casing
         .iter()
@@ -616,19 +847,6 @@ fn apply_text_changes_core(
         }
     };
 
-    // Helper to flush a newline (\n or \r) handling trimming.
-    let flush_line_ending = |newline: char, current_line: &mut String, result: &mut String| {
-        if do_trim {
-            // Trim end whitespace of accumulated line, then push
-            let trimmed = current_line.trim_end();
-            result.push_str(trimmed);
-            current_line.clear();
-            result.push(newline);
-        } else {
-            result.push(newline);
-        }
-    };
-
     while let Some((idx, ch)) = chars.next() {
         let abs_pos = start_offset + idx;
         match state {
@@ -643,6 +861,7 @@ fn apply_text_changes_core(
                         // Brace comment
                         push_char(ch, &mut current_line, &mut result);
                         brace_comment_apply_single_line_spacing = false;
+                        brace_comment_spacing_changed = false;
                         if options.space_inside_brace_comments {
                             // Detect compiler directives like {$IFDEF ...} and leave them untouched.
                             let mut probe = chars.clone();
@@ -666,8 +885,9 @@ fn apply_text_changes_core(
                                     Some(c) if c != '\n' && c != '\r' && c != '}'
                                 )
                             {
-                                consume_following_ws(&mut chars);
+                                let _ = consume_following_ws(&mut chars);
                                 push_char(' ', &mut current_line, &mut result);
+                                brace_comment_spacing_changed = true;
                             }
                         }
                         state = State::BraceComment;
@@ -680,6 +900,7 @@ fn apply_text_changes_core(
                             push_char('(', &mut current_line, &mut result);
                             push_char(star, &mut current_line, &mut result);
                             paren_star_comment_apply_single_line_spacing = false;
+                            paren_star_comment_spacing_changed = false;
                             if options.space_inside_paren_star_comments {
                                 // Detect compiler directives like (*$IFDEF ...*) and leave them untouched.
                                 let mut probe = chars.clone();
@@ -703,8 +924,9 @@ fn apply_text_changes_core(
                                         Some(c) if c != '\n' && c != '\r' && c != '*'
                                     )
                                 {
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     push_char(' ', &mut current_line, &mut result);
+                                    paren_star_comment_spacing_changed = true;
                                 }
                             }
                             state = State::ParenStarComment;
@@ -719,6 +941,7 @@ fn apply_text_changes_core(
                             push_char('/', &mut current_line, &mut result);
                             push_char(slash2, &mut current_line, &mut result);
                             if options.space_after_line_comment_slashes {
+                                let mut changed = false;
                                 // Consume additional leading slashes (///...).
                                 while let Some((_, '/')) = chars.peek().copied() {
                                     let (_, slashn) = chars.next().unwrap();
@@ -733,10 +956,14 @@ fn apply_text_changes_core(
                                     && nc != '\t'
                                 {
                                     push_char(' ', &mut current_line, &mut result);
+                                    changed = true;
                                 }
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_LINE_COMMENT_SLASH_SPACING, changed)
+                                });
                             }
                             state = State::LineComment;
-                        } else if let Some(_handled) = {
+                        } else if let Some(_changed) = {
                             let mut ctx = OperatorContext {
                                 chars: &mut chars,
                                 prev_char,
@@ -747,7 +974,11 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.assign_div, &mut ctx)
                         } {
-                            // '/=' handled by handle_operator
+                            if is_rule_enabled(&options.assign_div) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_ASSIGN_DIV, false)
+                                });
+                            }
                         } else {
                             match options.fdiv {
                                 SpaceOperation::NoChange => {
@@ -769,21 +1000,24 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if matches!(
                                         op,
                                         SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                     ) {
-                                        one_space_before_if_needed(buf, '/');
+                                        let _ = one_space_before_if_needed(buf, '/');
                                     }
                                     push_char('/', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     let buf = if do_trim {
                                         &mut current_line
                                     } else {
                                         &mut result
                                     };
-                                    space_after_if_needed(op, &mut chars, buf, '/');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, '/');
+                                    with_text_stats(&mut stats, |stats| {
+                                        stats.record_rule(RULE_FDIV, false)
+                                    });
                                 }
                             }
                         }
@@ -809,15 +1043,15 @@ fn apply_text_changes_core(
                                 } else {
                                     &mut result
                                 };
-                                remove_trailing_ws(buf);
+                                let _ = remove_trailing_ws(buf);
                                 if matches!(
                                     op,
                                     SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                 ) {
-                                    one_space_before_if_needed(buf, ',');
+                                    let _ = one_space_before_if_needed(buf, ',');
                                 }
                                 push_char(',', &mut current_line, &mut result);
-                                consume_following_ws(&mut chars);
+                                let _ = consume_following_ws(&mut chars);
                                 let buf = if do_trim {
                                     &mut current_line
                                 } else {
@@ -834,11 +1068,14 @@ fn apply_text_changes_core(
                                             buf.push(' ');
                                         }
                                     } else {
-                                        space_after_if_needed(op, &mut chars, buf, ',');
+                                        let _ = space_after_if_needed(op, &mut chars, buf, ',');
                                     }
                                 } else {
-                                    space_after_if_needed(op, &mut chars, buf, ',');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, ',');
                                 }
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_COMMA, false)
+                                });
                             }
                         }
                     }
@@ -862,19 +1099,22 @@ fn apply_text_changes_core(
                             } else {
                                 &mut result
                             };
-                            remove_trailing_ws(buf);
+                            let _ = remove_trailing_ws(buf);
                             if matches!(op, SpaceOperation::Before | SpaceOperation::BeforeAndAfter)
                             {
-                                one_space_before_if_needed(buf, ';');
+                                let _ = one_space_before_if_needed(buf, ';');
                             }
                             push_char(';', &mut current_line, &mut result);
-                            consume_following_ws(&mut chars);
+                            let _ = consume_following_ws(&mut chars);
                             let buf = if do_trim {
                                 &mut current_line
                             } else {
                                 &mut result
                             };
-                            space_after_if_needed(op, &mut chars, buf, ';');
+                            let _ = space_after_if_needed(op, &mut chars, buf, ';');
+                            with_text_stats(&mut stats, |stats| {
+                                stats.record_rule(RULE_SEMI_COLON, false)
+                            });
                         }
                     },
                     '<' => {
@@ -882,9 +1122,9 @@ fn apply_text_changes_core(
                             context.is_none() || is_expr_binary_lt_operator(context, abs_pos);
                         if is_generic_angle(context, abs_pos) {
                             let buf = active_buf(do_trim, &mut current_line, &mut result);
-                            remove_trailing_ws(buf);
+                            let _ = remove_trailing_ws(buf);
                             push_char('<', &mut current_line, &mut result);
-                            consume_following_ws(&mut chars);
+                            let _ = consume_following_ws(&mut chars);
                         } else if !apply_lt_spacing {
                             // Outside generic/template and non-binary contexts we preserve '<'
                             // literally to avoid unsafe rewrites on parser recovery drift.
@@ -906,8 +1146,12 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.lte, &mut ctx)
                         } {
-                            // '<=' handled by handle_operator
-                        } else if let Some(_handled) = {
+                            if is_rule_enabled(&options.lte) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_LTE, false)
+                                });
+                            }
+                        } else if let Some(_changed) = {
                             let mut ctx = OperatorContext {
                                 chars: &mut chars,
                                 prev_char,
@@ -918,7 +1162,11 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.neq, &mut ctx)
                         } {
-                            // '<>' handled by handle_operator
+                            if is_rule_enabled(&options.neq) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_NEQ, false)
+                                });
+                            }
                         } else {
                             match options.lt {
                                 SpaceOperation::NoChange => {
@@ -940,21 +1188,24 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if matches!(
                                         op,
                                         SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                     ) {
-                                        one_space_before_if_needed(buf, '<');
+                                        let _ = one_space_before_if_needed(buf, '<');
                                     }
                                     push_char('<', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     let buf = if do_trim {
                                         &mut current_line
                                     } else {
                                         &mut result
                                     };
-                                    space_after_if_needed(op, &mut chars, buf, '<');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, '<');
+                                    with_text_stats(&mut stats, |stats| {
+                                        stats.record_rule(RULE_LT, false)
+                                    });
                                 }
                             }
                         }
@@ -979,19 +1230,20 @@ fn apply_text_changes_core(
                             } else {
                                 &mut result
                             };
-                            remove_trailing_ws(buf);
+                            let _ = remove_trailing_ws(buf);
                             if matches!(op, SpaceOperation::Before | SpaceOperation::BeforeAndAfter)
                             {
-                                one_space_before_if_needed(buf, '=');
+                                let _ = one_space_before_if_needed(buf, '=');
                             }
                             push_char('=', &mut current_line, &mut result);
-                            consume_following_ws(&mut chars);
+                            let _ = consume_following_ws(&mut chars);
                             let buf = if do_trim {
                                 &mut current_line
                             } else {
                                 &mut result
                             };
-                            space_after_if_needed(op, &mut chars, buf, '=');
+                            let _ = space_after_if_needed(op, &mut chars, buf, '=');
+                            with_text_stats(&mut stats, |stats| stats.record_rule(RULE_EQ, false));
                         }
                     },
                     '>' => {
@@ -999,9 +1251,9 @@ fn apply_text_changes_core(
                             context.is_none() || is_expr_binary_gt_operator(context, abs_pos);
                         if is_generic_angle(context, abs_pos) {
                             let buf = active_buf(do_trim, &mut current_line, &mut result);
-                            remove_trailing_ws(buf);
+                            let _ = remove_trailing_ws(buf);
                             push_char('>', &mut current_line, &mut result);
-                            consume_following_ws(&mut chars);
+                            let _ = consume_following_ws(&mut chars);
                             if should_add_space_after_generic_closing_angle(
                                 chars.peek().map(|(_, ch)| *ch),
                             ) {
@@ -1028,7 +1280,11 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.gte, &mut ctx)
                         } {
-                            // '>=' handled by handle_operator
+                            if is_rule_enabled(&options.gte) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_GTE, false)
+                                });
+                            }
                         } else {
                             match options.gt {
                                 SpaceOperation::NoChange => {
@@ -1050,21 +1306,24 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if matches!(
                                         op,
                                         SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                     ) {
-                                        one_space_before_if_needed(buf, '>');
+                                        let _ = one_space_before_if_needed(buf, '>');
                                     }
                                     push_char('>', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     let buf = if do_trim {
                                         &mut current_line
                                     } else {
                                         &mut result
                                     };
-                                    space_after_if_needed(op, &mut chars, buf, '>');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, '>');
+                                    with_text_stats(&mut stats, |stats| {
+                                        stats.record_rule(RULE_GT, false)
+                                    });
                                 }
                             }
                         }
@@ -1081,14 +1340,18 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.assign_add, &mut ctx)
                         } {
-                            // '+=' handled by handle_operator
+                            if is_rule_enabled(&options.assign_add) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_ASSIGN_ADD, false)
+                                });
+                            }
                         } else if is_unary_plus(context, abs_pos)
                             || is_positive_literal_plus(context, abs_pos)
                             || is_exponent_sign(context, abs_pos)
                             || is_exponent_sign_lexical(text, idx)
                         {
                             push_char('+', &mut current_line, &mut result);
-                            consume_following_ws(&mut chars);
+                            let _ = consume_following_ws(&mut chars);
                         } else {
                             match options.add {
                                 SpaceOperation::NoChange => {
@@ -1110,21 +1373,24 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if matches!(
                                         op,
                                         SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                     ) {
-                                        one_space_before_if_needed(buf, '+');
+                                        let _ = one_space_before_if_needed(buf, '+');
                                     }
                                     push_char('+', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     let buf = if do_trim {
                                         &mut current_line
                                     } else {
                                         &mut result
                                     };
-                                    space_after_if_needed(op, &mut chars, buf, '+');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, '+');
+                                    with_text_stats(&mut stats, |stats| {
+                                        stats.record_rule(RULE_ADD, false)
+                                    });
                                 }
                             }
                         }
@@ -1141,14 +1407,18 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.assign_sub, &mut ctx)
                         } {
-                            // '-=' handled by handle_operator
+                            if is_rule_enabled(&options.assign_sub) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_ASSIGN_SUB, false)
+                                });
+                            }
                         } else if is_negative_literal_minus(context, abs_pos)
                             || is_unary_minus(context, abs_pos)
                             || is_exponent_sign(context, abs_pos)
                             || is_exponent_sign_lexical(text, idx)
                         {
                             push_char('-', &mut current_line, &mut result);
-                            consume_following_ws(&mut chars);
+                            let _ = consume_following_ws(&mut chars);
                         } else {
                             match options.sub {
                                 SpaceOperation::NoChange => {
@@ -1170,21 +1440,24 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if matches!(
                                         op,
                                         SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                     ) {
-                                        one_space_before_if_needed(buf, '-');
+                                        let _ = one_space_before_if_needed(buf, '-');
                                     }
                                     push_char('-', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     let buf = if do_trim {
                                         &mut current_line
                                     } else {
                                         &mut result
                                     };
-                                    space_after_if_needed(op, &mut chars, buf, '-');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, '-');
+                                    with_text_stats(&mut stats, |stats| {
+                                        stats.record_rule(RULE_SUB, false)
+                                    });
                                 }
                             }
                         }
@@ -1201,7 +1474,11 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.assign_mul, &mut ctx)
                         } {
-                            // '*=' handled by handle_operator
+                            if is_rule_enabled(&options.assign_mul) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_ASSIGN_MUL, false)
+                                });
+                            }
                         } else {
                             match options.mul {
                                 SpaceOperation::NoChange => {
@@ -1223,21 +1500,24 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if matches!(
                                         op,
                                         SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                     ) {
-                                        one_space_before_if_needed(buf, '*');
+                                        let _ = one_space_before_if_needed(buf, '*');
                                     }
                                     push_char('*', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     let buf = if do_trim {
                                         &mut current_line
                                     } else {
                                         &mut result
                                     };
-                                    space_after_if_needed(op, &mut chars, buf, '*');
+                                    let _ = space_after_if_needed(op, &mut chars, buf, '*');
+                                    with_text_stats(&mut stats, |stats| {
+                                        stats.record_rule(RULE_MUL, false)
+                                    });
                                 }
                             }
                         }
@@ -1254,7 +1534,11 @@ fn apply_text_changes_core(
                             };
                             handle_operator(ch, &options.assign, &mut ctx)
                         } {
-                            // ':=' handled by handle_operator
+                            if is_rule_enabled(&options.assign) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(RULE_ASSIGN, false)
+                                });
+                            }
                         } else {
                             // Single ':' operator
                             // Check if we should skip spacing due to numeric exception (e.g., time format like "12:34")
@@ -1263,6 +1547,11 @@ fn apply_text_changes_core(
                                 prev_char,
                                 chars.peek().map(|(_, ch)| *ch),
                             );
+                            if skip_spacing {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_skip(RULE_COLON_NUMERIC_EXCEPTION)
+                                });
+                            }
                             match options.colon {
                                 SpaceOperation::NoChange => {
                                     if !skip_spacing
@@ -1287,17 +1576,17 @@ fn apply_text_changes_core(
                                     } else {
                                         &mut result
                                     };
-                                    remove_trailing_ws(buf);
+                                    let _ = remove_trailing_ws(buf);
                                     if !skip_spacing
                                         && matches!(
                                             op,
                                             SpaceOperation::Before | SpaceOperation::BeforeAndAfter
                                         )
                                     {
-                                        one_space_before_if_needed(buf, ':');
+                                        let _ = one_space_before_if_needed(buf, ':');
                                     }
                                     push_char(':', &mut current_line, &mut result);
-                                    consume_following_ws(&mut chars);
+                                    let _ = consume_following_ws(&mut chars);
                                     if !skip_spacing
                                         && matches!(
                                             op,
@@ -1309,12 +1598,17 @@ fn apply_text_changes_core(
                                     {
                                         push_char(' ', &mut current_line, &mut result);
                                     }
+                                    if !skip_spacing {
+                                        with_text_stats(&mut stats, |stats| {
+                                            stats.record_rule(RULE_COLON, false)
+                                        });
+                                    }
                                 }
                             }
                         }
                     }
                     '\n' | '\r' => {
-                        flush_line_ending(ch, &mut current_line, &mut result);
+                        flush_line_ending(ch, do_trim, &mut current_line, &mut result, &mut stats);
                     }
                     _ => {
                         if !enforce_word_casing_rules.is_empty() && is_identifier_start(ch) {
@@ -1336,6 +1630,14 @@ fn apply_text_changes_core(
                             let output = enforce_word_casing_rules
                                 .get(&normalized_identifier)
                                 .unwrap_or(&identifier);
+                            if enforce_word_casing_rules.contains_key(&normalized_identifier) {
+                                with_text_stats(&mut stats, |stats| {
+                                    stats.record_rule(
+                                        RULE_ENFORCE_WORD_CASING,
+                                        output != &identifier,
+                                    )
+                                });
+                            }
 
                             if do_trim {
                                 current_line.push_str(output);
@@ -1354,7 +1656,7 @@ fn apply_text_changes_core(
             State::StringLiteral => {
                 if ch == '\n' || ch == '\r' {
                     // Unterminated string at line break: exit string state
-                    flush_line_ending(ch, &mut current_line, &mut result);
+                    flush_line_ending(ch, do_trim, &mut current_line, &mut result, &mut stats);
                     state = State::Code;
                 } else {
                     push_char(ch, &mut current_line, &mut result);
@@ -1375,7 +1677,7 @@ fn apply_text_changes_core(
             State::LineComment => {
                 if ch == '\n' || ch == '\r' {
                     // End of line comment - use consistent flush_line_ending logic
-                    flush_line_ending(ch, &mut current_line, &mut result);
+                    flush_line_ending(ch, do_trim, &mut current_line, &mut result, &mut stats);
                     state = State::Code;
                 } else {
                     push_char(ch, &mut current_line, &mut result);
@@ -1384,17 +1686,21 @@ fn apply_text_changes_core(
             State::BraceComment => {
                 if ch == '\n' || ch == '\r' {
                     // Handle newlines in brace comments consistently
-                    flush_line_ending(ch, &mut current_line, &mut result);
+                    flush_line_ending(ch, do_trim, &mut current_line, &mut result, &mut stats);
                 } else if ch == '}' {
                     if brace_comment_apply_single_line_spacing {
                         let buf = active_buf(do_trim, &mut current_line, &mut result);
-                        if current_line_has_non_ws(buf) {
-                            remove_trailing_horizontal_ws(buf);
-                            buf.push(' ');
-                        }
+                        brace_comment_spacing_changed |= ensure_single_trailing_space(buf);
+                        with_text_stats(&mut stats, |stats| {
+                            stats.record_rule(
+                                RULE_BRACE_COMMENT_SPACING,
+                                brace_comment_spacing_changed,
+                            )
+                        });
                     }
                     push_char(ch, &mut current_line, &mut result);
                     brace_comment_apply_single_line_spacing = false;
+                    brace_comment_spacing_changed = false;
                     state = State::Code;
                 } else {
                     push_char(ch, &mut current_line, &mut result);
@@ -1403,21 +1709,25 @@ fn apply_text_changes_core(
             State::ParenStarComment => {
                 if ch == '\n' || ch == '\r' {
                     // Handle newlines in paren-star comments consistently
-                    flush_line_ending(ch, &mut current_line, &mut result);
+                    flush_line_ending(ch, do_trim, &mut current_line, &mut result, &mut stats);
                 } else if ch == '*' {
                     // Look ahead for ) to end comment
                     if let Some((_, ')')) = chars.peek().copied() {
                         if paren_star_comment_apply_single_line_spacing {
                             let buf = active_buf(do_trim, &mut current_line, &mut result);
-                            if current_line_has_non_ws(buf) {
-                                remove_trailing_horizontal_ws(buf);
-                                buf.push(' ');
-                            }
+                            paren_star_comment_spacing_changed |= ensure_single_trailing_space(buf);
+                            with_text_stats(&mut stats, |stats| {
+                                stats.record_rule(
+                                    RULE_PAREN_STAR_COMMENT_SPACING,
+                                    paren_star_comment_spacing_changed,
+                                )
+                            });
                         }
                         push_char(ch, &mut current_line, &mut result);
                         let (_, closing_paren) = chars.next().unwrap();
                         push_char(closing_paren, &mut current_line, &mut result);
                         paren_star_comment_apply_single_line_spacing = false;
+                        paren_star_comment_spacing_changed = false;
                         state = State::Code;
                     } else {
                         push_char(ch, &mut current_line, &mut result);
@@ -1435,6 +1745,12 @@ fn apply_text_changes_core(
     if do_trim && !current_line.is_empty() {
         // flush last line (no newline present)
         let trimmed = current_line.trim_end();
+        with_text_stats(&mut stats, |stats| {
+            stats.record_rule(
+                RULE_TRIM_TRAILING_WHITESPACE,
+                trimmed.len() != current_line.len(),
+            )
+        });
         result.push_str(trimmed);
     }
     if result == text { None } else { Some(result) }
@@ -1574,7 +1890,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a, b;c, d");
     }
 
@@ -1587,7 +1903,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a,b; c,d");
     }
 
@@ -1600,7 +1916,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a, b; c, d");
     }
 
@@ -1613,7 +1929,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -1686,7 +2002,7 @@ mod tests {
             ..Default::default()
         };
         let text = "Line 1   \nLine 2\t\t\nLine 3 ";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "Line 1\nLine 2\nLine 3");
     }
 
@@ -1732,7 +2048,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b,c   \nd,e,f\t\t";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a, b, c\nd, e, f");
     }
 
@@ -1745,7 +2061,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d   \ne,f;g,h\t\t";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a, b; c, d\ne, f; g, h");
     }
 
@@ -1835,7 +2151,7 @@ mod tests {
         };
         // Test escaped single quotes in Delphi/Pascal strings
         let text = "s := 'It''s a test',x;y";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         // The comma/semicolon inside the string should not be spaced
         assert_eq!(result.unwrap(), "s := 'It''s a test', x; y");
     }
@@ -1850,7 +2166,7 @@ mod tests {
         };
         // Multiple escaped quotes and code after
         let text = "msg := 'Can''t say ''hello'', sorry',next";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "msg := 'Can''t say ''hello'', sorry', next"
@@ -1867,7 +2183,7 @@ mod tests {
         };
         // Unterminated string that breaks at newline
         let text = "s := 'unterminated\ncode,after;break";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         // After line break, spacing should be applied
         assert_eq!(result.unwrap(), "s := 'unterminated\ncode, after; break");
     }
@@ -1882,7 +2198,7 @@ mod tests {
         };
         // Test multiline brace comments
         let text = "{ multi\nline,comment;here }\ncode,after";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "{ multi\nline,comment;here }\ncode, after");
     }
 
@@ -1896,7 +2212,7 @@ mod tests {
         };
         // Test multiline (* *) comments
         let text = "(* multi\nline,comment;here *)\ncode,after";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "(* multi\nline,comment;here *)\ncode, after"
@@ -1913,7 +2229,7 @@ mod tests {
         };
         // Test trimming with both LF and CRLF
         let text = "line1   \r\nline2\t\t\nline3   ";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "line1\r\nline2\nline3");
     }
 
@@ -1928,7 +2244,7 @@ mod tests {
         };
         let text = "'a,b;c',x;y";
         // Only commas/semicolons outside the quotes should be spaced.
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "'a,b;c', x; y");
     }
 
@@ -1942,7 +2258,7 @@ mod tests {
             ..Default::default()
         };
         let text = "{a,b;c},x;y";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "{a,b;c}, x; y");
     }
 
@@ -1956,7 +2272,7 @@ mod tests {
             ..Default::default()
         };
         let text = "(*a,b;c*),x;y";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "(*a,b;c*), x; y");
     }
 
@@ -1969,7 +2285,7 @@ mod tests {
             ..Default::default()
         };
         let text = "// a,b;c\nx,y;z";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         // Only second line is transformed.
         assert_eq!(result.unwrap(), "// a,b;c\nx, y; z");
     }
@@ -1978,7 +2294,7 @@ mod tests {
     fn test_default_comment_spacing_options_apply() {
         let options = TextChangeOptions::default();
         let text = "{NoSpace}\n(*NoSpace*)\n//NoSpace\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "{ NoSpace }\n(* NoSpace *)\n// NoSpace\n");
     }
 
@@ -1992,7 +2308,7 @@ mod tests {
             ..Default::default()
         };
         let text = "//abc\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "// abc\n");
     }
 
@@ -2006,7 +2322,7 @@ mod tests {
             ..Default::default()
         };
         let text = "//////////abc\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "////////// abc\n");
     }
 
@@ -2020,7 +2336,7 @@ mod tests {
             ..Default::default()
         };
         let text = "/////\t\t  abc\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -2034,7 +2350,7 @@ mod tests {
             ..Default::default()
         };
         let text = "//       comment\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -2048,7 +2364,7 @@ mod tests {
             ..Default::default()
         };
         let text = "////////\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -2061,7 +2377,7 @@ mod tests {
             ..Default::default()
         };
         let text = "val:='a,b'; // c,d;e\n{ x,y;z } foo,bar;baz (* p,q;r *) qux,quux";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "val := 'a,b'; // c,d;e\n{ x,y;z } foo, bar; baz (* p,q;r *) qux, quux"
@@ -2078,7 +2394,7 @@ mod tests {
             ..Default::default()
         };
         let text = "{NoSpace} {  TooManySpaces   } {}";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "{ NoSpace } { TooManySpaces } { }");
     }
 
@@ -2092,7 +2408,7 @@ mod tests {
             ..Default::default()
         };
         let text = "{First line\nSecond line}\n{\nSecond line\n}\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -2106,7 +2422,7 @@ mod tests {
             ..Default::default()
         };
         let text = "{$IFDEF DEBUG}\n{  $IFDEF DEBUG  }\n{NormalComment}\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "{$IFDEF DEBUG}\n{  $IFDEF DEBUG  }\n{ NormalComment }\n"
@@ -2123,7 +2439,7 @@ mod tests {
             ..Default::default()
         };
         let text = "(*NoSpace*) (*  TooManySpaces   *) (**)";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "(* NoSpace *) (* TooManySpaces *) (* *)");
     }
 
@@ -2137,7 +2453,7 @@ mod tests {
             ..Default::default()
         };
         let text = "(*First line\nSecond line*)\n(*\nSecond line\n*)\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -2151,7 +2467,7 @@ mod tests {
             ..Default::default()
         };
         let text = "(*$IFDEF DEBUG*)\n(*  $IFDEF DEBUG  *)\n(*NormalComment*)\n";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "(*$IFDEF DEBUG*)\n(*  $IFDEF DEBUG  *)\n(* NormalComment *)\n"
@@ -2168,7 +2484,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b,c";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a ,b ,c");
     }
 
@@ -2181,7 +2497,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a;b;c";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a ;b ;c");
     }
 
@@ -2194,7 +2510,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b,c";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a , b , c");
     }
 
@@ -2207,7 +2523,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a;b;c";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a ; b ; c");
     }
 
@@ -2221,7 +2537,7 @@ mod tests {
         };
         // Already has spaces before punctuation - should not add more
         let text = "a ,b ;c";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none()); // No change because space already exists
     }
 
@@ -2235,7 +2551,7 @@ mod tests {
         };
         // Already has spaces after punctuation - should not add more
         let text = "a, b; c";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none()); // No change because space already exists
     }
 
@@ -2249,7 +2565,7 @@ mod tests {
         };
         // Comma/semicolon at the beginning should not add space before
         let text = ",a;b";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), ",a ;b"); // No space before first comma
     }
 
@@ -2262,7 +2578,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a,b;c,d";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a ,b ; c ,d");
     }
 
@@ -2279,7 +2595,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a:=5+b+=c-=d*=e/=f";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "a := 5 + b += c -= d *= e /= f");
     }
 
@@ -2296,7 +2612,7 @@ mod tests {
             ..Default::default()
         };
         let text = "if a<b=c<>d>e<=f>=g then";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "if a < b = c <> d > e <= f >= g then");
     }
 
@@ -2311,7 +2627,7 @@ mod tests {
             ..Default::default()
         };
         let text = "result:=a+b-c*d/e";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "result := a + b - c * d / e");
     }
 
@@ -2323,7 +2639,7 @@ mod tests {
             ..Default::default()
         };
         let text = "var x:Integer;y:String;z:Boolean";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "var x: Integer; y: String; z: Boolean");
     }
 
@@ -2339,7 +2655,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a+b-c*d/e=f";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none()); // Should remain unchanged for these operators
     }
 
@@ -2353,7 +2669,7 @@ mod tests {
             ..Default::default()
         };
         let text = "msg:='a:=b+c'; // Comment with := and + and =\nresult:=x=y+z";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         // Operators inside string and comments should not be spaced
         assert_eq!(
             result.unwrap(),
@@ -2371,7 +2687,7 @@ mod tests {
             ..Default::default()
         };
         let text = "a++b--c==d";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         // Consecutive same operators should not have space between them (correct behavior)
         assert_eq!(result.unwrap(), "a ++ b -- c == d");
     }
@@ -2387,7 +2703,7 @@ mod tests {
         };
         // Time format - should not have spaces when numeric exception is enabled
         let text = "time := 12:34:56;";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert!(result.is_none());
     }
 
@@ -2401,7 +2717,7 @@ mod tests {
         };
         // When exception is disabled, spaces should be added around all colons
         let text = "time := 12:34:56;";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "time := 12 : 34 : 56;");
     }
 
@@ -2415,7 +2731,7 @@ mod tests {
         };
         // Mix of numeric (no space) and non-numeric (with space) colons
         let text = "var x: Integer; time := 12:34;";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "var x : Integer; time := 12:34;");
     }
 
@@ -2430,7 +2746,7 @@ mod tests {
         };
         // Ensure ':=' assignment is handled separately from single ':'
         let text = "time:=12:34; x:Integer;";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "time := 12:34; x : Integer;");
     }
 
@@ -2444,7 +2760,7 @@ mod tests {
         };
         // Test edge cases: colon at start, end, and with non-digits
         let text = ":start x:y 3:z end: 12:34";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), ": start x : y 3 : z end : 12:34");
     }
 
@@ -2458,7 +2774,7 @@ mod tests {
         };
         // Test with only 'After' spacing - numeric exception should still work
         let text = "x:Integer; time := 12:34;";
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "x: Integer; time := 12:34;");
     }
 
@@ -2700,7 +3016,7 @@ end."#;
     fn test_preserve_indentation_for_multiline_expression_operators() {
         let text = "begin\n  X :=\n      A\n    -  B\n    +  C;\nend.";
         let options = TextChangeOptions::default();
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "begin\n  X :=\n      A\n    - B\n    + C;\nend."
@@ -2716,7 +3032,7 @@ end."#;
             ..Default::default()
         };
 
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "HTTPClient := HTTPClient + HTTPClient;");
     }
 
@@ -2729,7 +3045,7 @@ end."#;
             ..Default::default()
         };
 
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(result.unwrap(), "HTTPClientHelper := HTTPClient;");
     }
 
@@ -2742,10 +3058,68 @@ end."#;
             ..Default::default()
         };
 
-        let result = apply_text_changes(text, &options, 0, None);
+        let result = apply_text_changes(text, &options, 0, None, None);
         assert_eq!(
             result.unwrap(),
             "msg := 'httpclient'; // httpclient\nHTTPClient := 1;"
         );
+    }
+
+    fn find_rule_stats(stats: &TextTransformationStats, rule_name: &str) -> TextRuleStats {
+        stats
+            .rule_stats()
+            .find_map(|(name, stats)| (name == rule_name).then_some(stats.clone()))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn test_apply_text_transformation_with_stats_tracks_word_casing_rule() {
+        let text = "httpclient := 1;";
+        let options = TextChangeOptions {
+            enforce_word_casing: vec!["HTTPClient".to_string()],
+            trim_trailing_whitespace: false,
+            ..Default::default()
+        };
+        let mut stats = TextTransformationStats::default();
+
+        let result = apply_text_transformation_with_context_and_stats(
+            0,
+            text.len(),
+            text,
+            &options,
+            None,
+            &mut stats,
+        )
+        .unwrap();
+
+        assert_eq!(result.text, "HTTPClient := 1;");
+        assert_eq!(stats.sections_processed, 1);
+        assert_eq!(stats.sections_changed, 1);
+        assert_eq!(stats.bytes_processed, text.len());
+
+        let word_casing_stats = find_rule_stats(&stats, RULE_ENFORCE_WORD_CASING);
+        assert_eq!(word_casing_stats.hits, 1);
+        assert_eq!(word_casing_stats.changes, 1);
+        assert_eq!(word_casing_stats.skips, 0);
+    }
+
+    #[test]
+    fn test_apply_file_level_text_changes_with_stats_tracks_trailing_newline_rule() {
+        let text = "unit Foo;\nend.";
+        let options = TextChangeOptions::default();
+        let mut stats = TextTransformationStats::default();
+
+        let result =
+            apply_file_level_text_changes_with_stats(text, &options, &LineEnding::Lf, &mut stats)
+                .unwrap();
+
+        assert_eq!(result, "unit Foo;\nend.\n");
+        assert_eq!(stats.file_level_runs, 1);
+        assert_eq!(stats.file_level_changes, 1);
+
+        let eof_stats = find_rule_stats(&stats, RULE_ENSURE_SINGLE_TRAILING_NEWLINE);
+        assert_eq!(eof_stats.hits, 1);
+        assert_eq!(eof_stats.changes, 1);
+        assert_eq!(eof_stats.skips, 0);
     }
 }

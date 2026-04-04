@@ -1,5 +1,6 @@
 use crate::dfixxer_error::DFixxerError;
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
 
@@ -70,6 +71,37 @@ pub struct CodeSection {
 pub struct ParseResult {
     pub code_sections: Vec<CodeSection>,
 }
+
+/// Fine-grained timings for parse sub-stages that feed downstream transforms.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseContextTimings {
+    pub build_tree: Duration,
+    pub collect_code_sections: Duration,
+    pub collect_spacing_context: Duration,
+    pub collect_inherited_call_expansion_context: Duration,
+    pub collect_local_routine_spacing_context: Duration,
+    pub collect_control_statement_body_wrapping_context: Duration,
+    pub collect_inline_local_var_definition_context: Duration,
+}
+
+pub type ParseWithContextsResult = (
+    ParseResult,
+    SpacingContext,
+    InheritedExpansionContext,
+    LocalRoutineSpacingContext,
+    ControlStatementBodyWrappingContext,
+    InlineLocalVarDefinitionContext,
+);
+
+pub type ParseWithContextsAndTimingsResult = (
+    ParseResult,
+    SpacingContext,
+    InheritedExpansionContext,
+    LocalRoutineSpacingContext,
+    ControlStatementBodyWrappingContext,
+    InlineLocalVarDefinitionContext,
+    ParseContextTimings,
+);
 
 /// Collected spacing context derived from the AST for operator-aware formatting.
 #[derive(Debug, Clone, Default)]
@@ -2056,55 +2088,96 @@ pub fn parse(source: &str) -> Result<ParseResult, DFixxerError> {
 }
 
 /// Parse source code and collect parser contexts needed by transformations.
-pub fn parse_with_contexts(
+pub fn parse_with_contexts(source: &str) -> Result<ParseWithContextsResult, DFixxerError> {
+    let (
+        parse_result,
+        spacing_context,
+        inherited_expansion_context,
+        local_routine_spacing_context,
+        control_statement_body_wrapping_context,
+        inline_local_var_definition_context,
+        _timings,
+    ) = parse_with_contexts_and_timings(source)?;
+
+    Ok((
+        parse_result,
+        spacing_context,
+        inherited_expansion_context,
+        local_routine_spacing_context,
+        control_statement_body_wrapping_context,
+        inline_local_var_definition_context,
+    ))
+}
+
+/// Parse source code and collect parser contexts with sub-stage timings.
+pub fn parse_with_contexts_and_timings(
     source: &str,
-) -> Result<
-    (
-        ParseResult,
-        SpacingContext,
-        InheritedExpansionContext,
-        LocalRoutineSpacingContext,
-        ControlStatementBodyWrappingContext,
-        InlineLocalVarDefinitionContext,
-    ),
-    DFixxerError,
-> {
+) -> Result<ParseWithContextsAndTimingsResult, DFixxerError> {
+    let build_tree_start = Instant::now();
     let tree = parse_to_tree(source)?;
+    let build_tree = build_tree_start.elapsed();
+
     let mut code_sections = Vec::new();
+    let collect_code_sections_start = Instant::now();
     traverse_and_parse(tree.root_node(), &mut code_sections);
+    let collect_code_sections = collect_code_sections_start.elapsed();
 
     let mut spacing_context = SpacingContext::default();
+    let collect_spacing_context_start = Instant::now();
     collect_spacing_context(tree.root_node(), source, &mut spacing_context);
     collect_error_ranges(tree.root_node(), &mut spacing_context.error_ranges);
     normalize_ranges(&mut spacing_context.error_ranges);
+    let collect_spacing_context = collect_spacing_context_start.elapsed();
 
     let mut inherited_expansion_context = InheritedExpansionContext::default();
+    let collect_inherited_call_expansion_context_start = Instant::now();
     collect_inherited_expansion_context(tree.root_node(), source, &mut inherited_expansion_context);
+    let collect_inherited_call_expansion_context =
+        collect_inherited_call_expansion_context_start.elapsed();
 
     let mut local_routine_spacing_context = LocalRoutineSpacingContext::default();
+    let collect_local_routine_spacing_context_start = Instant::now();
     collect_local_routine_spacing_context(
         tree.root_node(),
         source,
         &mut local_routine_spacing_context,
     );
     normalize_local_routine_spacing_context(&mut local_routine_spacing_context);
+    let collect_local_routine_spacing_context =
+        collect_local_routine_spacing_context_start.elapsed();
 
     let mut control_statement_body_wrapping_context =
         ControlStatementBodyWrappingContext::default();
+    let collect_control_statement_body_wrapping_context_start = Instant::now();
     collect_control_statement_body_wrapping_context(
         tree.root_node(),
         source,
         &mut control_statement_body_wrapping_context,
     );
     normalize_control_statement_body_wrapping_context(&mut control_statement_body_wrapping_context);
+    let collect_control_statement_body_wrapping_context =
+        collect_control_statement_body_wrapping_context_start.elapsed();
 
     let mut inline_local_var_definition_context = InlineLocalVarDefinitionContext::default();
+    let collect_inline_local_var_definition_context_start = Instant::now();
     collect_inline_local_var_definition_context(
         tree.root_node(),
         source,
         &mut inline_local_var_definition_context,
     );
     normalize_inline_local_var_definition_context(&mut inline_local_var_definition_context);
+    let collect_inline_local_var_definition_context =
+        collect_inline_local_var_definition_context_start.elapsed();
+
+    let timings = ParseContextTimings {
+        build_tree,
+        collect_code_sections,
+        collect_spacing_context,
+        collect_inherited_call_expansion_context,
+        collect_local_routine_spacing_context,
+        collect_control_statement_body_wrapping_context,
+        collect_inline_local_var_definition_context,
+    };
 
     Ok((
         ParseResult { code_sections },
@@ -2113,6 +2186,7 @@ pub fn parse_with_contexts(
         local_routine_spacing_context,
         control_statement_body_wrapping_context,
         inline_local_var_definition_context,
+        timings,
     ))
 }
 
