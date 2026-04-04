@@ -8,6 +8,7 @@ use options::{Options, find_custom_config_for_file, should_exclude_file};
 mod replacements;
 mod transform_control_statement_body_wrapping;
 mod transform_inherited_calls;
+mod transform_inline_local_var_definitions;
 mod transform_local_routine_indentation;
 mod transform_local_routine_spacing;
 mod transform_procedure_section;
@@ -26,6 +27,7 @@ mod suppression;
 use crate::suppression::collect_suppression_context;
 use crate::transform_control_statement_body_wrapping::transform_control_statement_body_wrapping;
 use crate::transform_inherited_calls::transform_inherited_calls;
+use crate::transform_inline_local_var_definitions::transform_inline_local_var_definitions;
 use crate::transform_local_routine_indentation::transform_local_routine_indentation;
 use crate::transform_local_routine_spacing::transform_local_routine_spacing;
 use crate::transform_procedure_section::transform_procedure_section;
@@ -132,6 +134,7 @@ fn process_file(
         inherited_expansion_context,
         local_routine_spacing_context,
         control_statement_body_wrapping_context,
+        inline_local_var_definition_context,
     ) = timing.time_operation_result("Parsing", || parse_with_contexts(&source))?;
     if !spacing_context.error_ranges.is_empty() {
         let message = format!(
@@ -213,6 +216,17 @@ fn process_file(
             let local_routine_replacements =
                 transform_local_routine_spacing(&source, &local_routine_spacing_context, &options);
             replacements.extend(local_routine_replacements);
+        }
+
+        if options.transformations.enable_inline_local_var_definitions {
+            let inline_local_replacements = transform_inline_local_var_definitions(
+                &source,
+                &inline_local_var_definition_context,
+                &options,
+            )
+            .into_iter()
+            .filter_map(apply_text_transformation_if_enabled);
+            replacements.extend(inline_local_replacements);
         }
 
         let control_statement_replacements = transform_control_statement_body_wrapping(

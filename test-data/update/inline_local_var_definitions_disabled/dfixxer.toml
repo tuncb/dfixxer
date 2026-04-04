@@ -1,19 +1,21 @@
 indentation = "  "
-line_ending = "Auto"
+line_ending = "Lf"
+
+[uses_section]
+uses_section_style = "CommaAtTheEnd"
+override_sorting_order = []
+module_names_to_update = []
 
 [transformations]
-enable_inline_local_var_definitions = false
 enable_uses_section = false
 enable_unit_program_section = false
 enable_single_keyword_sections = false
 enable_procedure_section = false
 enable_local_routine_spacing = false
 enable_local_routine_indentation = false
+enable_inline_local_var_definitions = false
 enable_for_body_wrapping = false
-enable_while_body_wrapping = true
-enable_if_body_wrapping = true
-skip_terminating_for_body_wrapping = false
-skip_terminating_while_body_wrapping = false
-skip_terminating_if_body_wrapping = false
+enable_while_body_wrapping = false
+enable_if_body_wrapping = false
 enable_inherited_call_expansion = false
 enable_text_transformations = false

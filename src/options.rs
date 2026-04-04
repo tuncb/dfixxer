@@ -499,6 +499,7 @@ pub struct TransformationOptions {
     pub enable_procedure_section: bool,
     pub enable_local_routine_spacing: bool,
     pub enable_local_routine_indentation: bool,
+    pub enable_inline_local_var_definitions: bool,
     pub enable_for_body_wrapping: bool,
     pub enable_while_body_wrapping: bool,
     pub enable_if_body_wrapping: bool,
@@ -518,6 +519,7 @@ impl Default for TransformationOptions {
             enable_procedure_section: true,
             enable_local_routine_spacing: true,
             enable_local_routine_indentation: true,
+            enable_inline_local_var_definitions: true,
             enable_for_body_wrapping: true,
             enable_while_body_wrapping: true,
             enable_if_body_wrapping: true,
@@ -798,6 +800,7 @@ mod tests {
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_local_routine_spacing);
         assert!(options.transformations.enable_local_routine_indentation);
+        assert!(options.transformations.enable_inline_local_var_definitions);
         assert!(options.transformations.enable_for_body_wrapping);
         assert!(options.transformations.enable_while_body_wrapping);
         assert!(options.transformations.enable_if_body_wrapping);
@@ -834,6 +837,7 @@ mod tests {
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_local_routine_spacing);
         assert!(options.transformations.enable_local_routine_indentation);
+        assert!(options.transformations.enable_inline_local_var_definitions);
         assert!(options.transformations.enable_for_body_wrapping);
         assert!(options.transformations.enable_while_body_wrapping);
         assert!(options.transformations.enable_if_body_wrapping);
@@ -1015,6 +1019,7 @@ enable_uses_section = false
         assert_eq!(options.text_changes.comma, SpaceOperation::After);
         assert!(options.transformations.enable_local_routine_spacing);
         assert!(options.transformations.enable_local_routine_indentation);
+        assert!(options.transformations.enable_inline_local_var_definitions);
         assert!(options.transformations.enable_for_body_wrapping);
         assert!(options.transformations.enable_while_body_wrapping);
         assert!(options.transformations.enable_if_body_wrapping);
@@ -1023,6 +1028,28 @@ enable_uses_section = false
         assert!(options.transformations.skip_terminating_if_body_wrapping);
         assert!(options.transformations.enable_inherited_call_expansion);
         assert!(options.text_changes.enforce_word_casing.is_empty());
+    }
+
+    #[test]
+    fn test_transformations_config_can_disable_inline_local_var_definitions() {
+        let temp_path = create_unique_temp_dir();
+        let file_path = temp_path.join("inline_local_var_config.toml");
+
+        fs::write(
+            &file_path,
+            r#"
+[transformations]
+enable_inline_local_var_definitions = false
+"#,
+        )
+        .unwrap();
+
+        let options = Options::load_from_file(&file_path).unwrap();
+        assert!(!options.transformations.enable_inline_local_var_definitions);
+        assert!(options.transformations.enable_inherited_call_expansion);
+
+        fs::remove_file(&file_path).ok();
+        fs::remove_dir(&temp_path).ok();
     }
 
     #[test]

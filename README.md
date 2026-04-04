@@ -13,6 +13,7 @@ A command-line tool that reformats Delphi/Pascal files.
 - Normalizes spacing and casing in general source text, including commas, operators, generics, comments, and keywords
 - Fixes spacing between local routine declarations
 - Fixes indentation of local routine blocks
+- Rewrites conservative routine-local `var` blocks into inline `var` / `const` definitions when every declared variable can be safely handled
 - Trims trailing whitespace
 
 Exact behavior is configurable through `dfixxer.toml`, and individual transformation groups can be turned on or off.
@@ -326,6 +327,7 @@ The configuration file uses TOML format. All keys are optional; unspecified keys
   - `enable_procedure_section` (boolean) - Enable procedure section processing (default: `true`)
   - `enable_local_routine_spacing` (boolean) - Ensure implemented local routines have one empty line before and after them, while keeping attached comments / clean `{$IF...}` wrappers with the routine block (default: `true`)
   - `enable_local_routine_indentation` (boolean) - Indent implemented local routine blocks by one configured indentation level relative to their owning routine, including attached comments / clean `{$IF...}` wrappers (default: `true`)
+  - `enable_inline_local_var_definitions` (boolean) - Rewrite conservative routine-local leading `var` blocks into inline `var` / `const` definitions. The current implementation skips routines with nested local routines, labels/goto, comments or preprocessors inside the `var` block, inline declarations that shadow the locals, and other unsupported mutation patterns (default: `true`)
   - `enable_for_body_wrapping` (boolean) - Wrap eligible single-statement `for` and `for .. in` bodies in `begin` / `end` (default: `true`)
   - `enable_while_body_wrapping` (boolean) - Wrap eligible single-statement `while` bodies in `begin` / `end` (default: `true`)
   - `enable_if_body_wrapping` (boolean) - Wrap eligible standalone `if` bodies and `if` / `else if` / `else` chain branches in `begin` / `end` (default: `true`)
@@ -420,6 +422,7 @@ enable_single_keyword_sections = true
 enable_procedure_section = true
 enable_local_routine_spacing = true
 enable_local_routine_indentation = true
+enable_inline_local_var_definitions = true
 enable_for_body_wrapping = true
 enable_while_body_wrapping = true
 enable_if_body_wrapping = true

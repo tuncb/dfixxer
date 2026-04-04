@@ -1,1 +1,4 @@
 # Use built-in defaults for this fixture.
+
+[transformations]
+enable_inline_local_var_definitions = false

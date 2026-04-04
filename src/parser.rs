@@ -1,5 +1,5 @@
 use crate::dfixxer_error::DFixxerError;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tree_sitter::{Node, Parser, Tree};
 use tree_sitter_pascal::LANGUAGE;
 
@@ -158,6 +158,67 @@ pub struct ControlStatementBodyCandidate {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ControlStatementBodyWrappingContext {
     pub candidates: Vec<ControlStatementBodyCandidate>,
+}
+
+/// Action kinds for conservatively rewriting routine-local `var` blocks inline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlineLocalVarDefinitionActionKind {
+    ConstFromAssignment,
+    VarFromAssignment,
+    VarAtBlockStart,
+}
+
+/// Planned action for a single local variable declared in a routine-local `var` block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineLocalVarDefinitionAction {
+    pub name: String,
+    pub type_text: String,
+    pub declaration_order: usize,
+    pub kind: InlineLocalVarDefinitionActionKind,
+    pub statement_start_byte: Option<usize>,
+    pub statement_end_byte: Option<usize>,
+    pub expr_start_byte: Option<usize>,
+    pub expr_end_byte: Option<usize>,
+}
+
+/// Planned rewrite for a routine-local `var` area that can be safely inlined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineLocalVarDefinitionRoutine {
+    pub local_start_byte: usize,
+    pub local_end_byte: usize,
+    pub begin_insert_at: usize,
+    pub owner_start_byte: usize,
+    pub actions: Vec<InlineLocalVarDefinitionAction>,
+}
+
+/// Collected context for conservative routine-local inline `var` / `const` rewrites.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InlineLocalVarDefinitionContext {
+    pub routines: Vec<InlineLocalVarDefinitionRoutine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LocalVarDeclarationSpec {
+    name: String,
+    type_text: String,
+    declaration_order: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TopLevelSimpleAssignmentCandidate {
+    statement_start_byte: usize,
+    statement_end_byte: usize,
+    expr_start_byte: usize,
+    expr_end_byte: usize,
+    rhs_references_self: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LocalVarUsageSummary {
+    first_access_byte: Option<usize>,
+    write_count: usize,
+    unsupported: bool,
+    top_level_assignments: Vec<TopLevelSimpleAssignmentCandidate>,
 }
 
 fn parse_to_tree(source: &str) -> Result<Tree, DFixxerError> {
@@ -814,6 +875,522 @@ fn collect_local_routine_spacing_context(
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i) {
             collect_local_routine_spacing_context(child, source, context);
+        }
+    }
+}
+
+fn direct_children(node: Node) -> Vec<Node> {
+    let mut children = Vec::with_capacity(node.child_count());
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            children.push(child);
+        }
+    }
+    children
+}
+
+fn assignment_parts(node: Node) -> Option<(Node, Node, Node)> {
+    if node.kind() != "assignment" {
+        return None;
+    }
+
+    let lhs = node.child(0)?;
+    let operator = node.child(1)?;
+    let rhs = node.child(2)?;
+    Some((lhs, operator, rhs))
+}
+
+fn record_first_access(summary: &mut LocalVarUsageSummary, byte: usize) {
+    if summary
+        .first_access_byte
+        .is_none_or(|existing| byte < existing)
+    {
+        summary.first_access_byte = Some(byte);
+    }
+}
+
+fn subtree_contains_identifier(node: Node, source: &str, name: &str) -> bool {
+    if node.kind() == "identifier" {
+        return &source[node.start_byte()..node.end_byte()] == name;
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i)
+            && subtree_contains_identifier(child, source, name)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn subtree_contains_declared_identifier(
+    node: Node,
+    source: &str,
+    declared_names: &HashSet<String>,
+) -> bool {
+    if node.kind() == "identifier" {
+        return declared_names.contains(&source[node.start_byte()..node.end_byte()]);
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i)
+            && subtree_contains_declared_identifier(child, source, declared_names)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn inline_declares_declared_name(
+    node: Node,
+    source: &str,
+    declared_names: &HashSet<String>,
+) -> bool {
+    match node.kind() {
+        "varDef" | "varAssignDef" | "constAssignDef" => {
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i)
+                    && child.kind() == "identifier"
+                {
+                    return declared_names.contains(&source[child.start_byte()..child.end_byte()]);
+                }
+            }
+            false
+        }
+        "constDef" => {
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i)
+                    && inline_declares_declared_name(child, source, declared_names)
+                {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+fn collect_local_var_declarations_from_section(
+    section_node: Node,
+    source: &str,
+    declarations: &mut Vec<LocalVarDeclarationSpec>,
+) -> Option<()> {
+    if section_node.kind() != "declVars" || section_node.has_error() {
+        return None;
+    }
+
+    for child in direct_children(section_node) {
+        match child.kind() {
+            "kVar" => {}
+            "declVar" => {
+                let mut names = Vec::new();
+                let mut type_text: Option<String> = None;
+                let mut seen_colon = false;
+
+                for decl_child in direct_children(child) {
+                    match decl_child.kind() {
+                        "identifier" if !seen_colon => {
+                            names.push(
+                                source[decl_child.start_byte()..decl_child.end_byte()].to_string(),
+                            );
+                        }
+                        ":" => {
+                            seen_colon = true;
+                        }
+                        "type" => {
+                            type_text = Some(
+                                source[decl_child.start_byte()..decl_child.end_byte()].to_string(),
+                            );
+                        }
+                        "defaultValue" | "pp" | "comment" | "rttiAttributes" => {
+                            return None;
+                        }
+                        "," | ";" => {}
+                        _ => return None,
+                    }
+                }
+
+                let type_text = type_text?;
+                if names.is_empty() {
+                    return None;
+                }
+
+                for name in names {
+                    declarations.push(LocalVarDeclarationSpec {
+                        name,
+                        type_text: type_text.clone(),
+                        declaration_order: declarations.len(),
+                    });
+                }
+            }
+            _ => return None,
+        }
+    }
+
+    Some(())
+}
+
+fn collect_top_level_inline_assignment_candidates(
+    body_node: Node,
+    source: &str,
+    declared_names: &HashSet<String>,
+    usage_by_name: &mut HashMap<String, LocalVarUsageSummary>,
+) {
+    let children = direct_children(body_node);
+    for idx in 0..children.len() {
+        let child = children[idx];
+        if child.kind() != "assignment" {
+            continue;
+        }
+
+        let Some((lhs, operator, rhs)) = assignment_parts(child) else {
+            continue;
+        };
+        if lhs.kind() != "identifier" || operator.kind() != "kAssign" {
+            continue;
+        }
+
+        let name = &source[lhs.start_byte()..lhs.end_byte()];
+        if !declared_names.contains(name) {
+            continue;
+        }
+
+        let Some(semicolon_node) = children.get(idx + 1).copied() else {
+            continue;
+        };
+        if semicolon_node.kind() != ";" {
+            continue;
+        }
+
+        if let Some(summary) = usage_by_name.get_mut(name) {
+            summary
+                .top_level_assignments
+                .push(TopLevelSimpleAssignmentCandidate {
+                    statement_start_byte: child.start_byte(),
+                    statement_end_byte: semicolon_node.end_byte(),
+                    expr_start_byte: rhs.start_byte(),
+                    expr_end_byte: rhs.end_byte(),
+                    rhs_references_self: subtree_contains_identifier(rhs, source, name),
+                });
+        }
+    }
+}
+
+fn mark_common_mutating_call_access(
+    node: Node,
+    source: &str,
+    usage_by_name: &mut HashMap<String, LocalVarUsageSummary>,
+) {
+    if node.kind() != "exprCall" {
+        return;
+    }
+
+    let children = direct_children(node);
+    let Some(callee) = children.iter().find(|child| child.kind() == "identifier") else {
+        return;
+    };
+    let callee_upper = source[callee.start_byte()..callee.end_byte()].to_ascii_uppercase();
+    if !matches!(
+        callee_upper.as_str(),
+        "INC" | "DEC" | "INCLUDE" | "EXCLUDE" | "FREEANDNIL"
+    ) {
+        return;
+    }
+
+    let Some(args_node) = children.iter().find(|child| child.kind() == "exprArgs") else {
+        return;
+    };
+    let Some(first_identifier) = direct_children(*args_node)
+        .into_iter()
+        .find(|child| child.kind() == "identifier")
+    else {
+        return;
+    };
+
+    let name = &source[first_identifier.start_byte()..first_identifier.end_byte()];
+    if let Some(summary) = usage_by_name.get_mut(name) {
+        record_first_access(summary, first_identifier.start_byte());
+        summary.write_count += 1;
+        summary.unsupported = true;
+    }
+}
+
+fn collect_inline_local_var_accesses(
+    node: Node,
+    source: &str,
+    declared_names: &HashSet<String>,
+    usage_by_name: &mut HashMap<String, LocalVarUsageSummary>,
+    routine_supported: &mut bool,
+) {
+    if !*routine_supported {
+        return;
+    }
+
+    match node.kind() {
+        "label" | "goto" | "asm" => {
+            *routine_supported = false;
+            return;
+        }
+        "varDef" | "varAssignDef" | "constAssignDef" | "constDef" => {
+            if inline_declares_declared_name(node, source, declared_names) {
+                *routine_supported = false;
+                return;
+            }
+        }
+        "exprCall" => {
+            mark_common_mutating_call_access(node, source, usage_by_name);
+        }
+        "assignment" => {
+            let Some((lhs, operator, rhs)) = assignment_parts(node) else {
+                return;
+            };
+
+            if lhs.kind() == "identifier" {
+                let name = &source[lhs.start_byte()..lhs.end_byte()];
+                if let Some(summary) = usage_by_name.get_mut(name) {
+                    record_first_access(summary, lhs.start_byte());
+                    summary.write_count += 1;
+                    if operator.kind() != "kAssign" {
+                        summary.unsupported = true;
+                    }
+                    collect_inline_local_var_accesses(
+                        rhs,
+                        source,
+                        declared_names,
+                        usage_by_name,
+                        routine_supported,
+                    );
+                    return;
+                }
+            }
+
+            if subtree_contains_declared_identifier(lhs, source, declared_names) {
+                *routine_supported = false;
+                return;
+            }
+
+            collect_inline_local_var_accesses(
+                rhs,
+                source,
+                declared_names,
+                usage_by_name,
+                routine_supported,
+            );
+            return;
+        }
+        "identifier" => {
+            let name = &source[node.start_byte()..node.end_byte()];
+            if let Some(summary) = usage_by_name.get_mut(name) {
+                record_first_access(summary, node.start_byte());
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_inline_local_var_accesses(
+                child,
+                source,
+                declared_names,
+                usage_by_name,
+                routine_supported,
+            );
+        }
+    }
+}
+
+fn plan_inline_local_var_action(
+    declaration: &LocalVarDeclarationSpec,
+    summary: &LocalVarUsageSummary,
+) -> Option<InlineLocalVarDefinitionAction> {
+    if summary.unsupported {
+        return None;
+    }
+
+    if summary.write_count == 0 {
+        return summary
+            .first_access_byte
+            .is_none()
+            .then(|| InlineLocalVarDefinitionAction {
+                name: declaration.name.clone(),
+                type_text: declaration.type_text.clone(),
+                declaration_order: declaration.declaration_order,
+                kind: InlineLocalVarDefinitionActionKind::VarAtBlockStart,
+                statement_start_byte: None,
+                statement_end_byte: None,
+                expr_start_byte: None,
+                expr_end_byte: None,
+            });
+    }
+
+    let first_assignment = summary.top_level_assignments.first()?;
+    if summary.first_access_byte != Some(first_assignment.statement_start_byte)
+        || first_assignment.rhs_references_self
+    {
+        return None;
+    }
+
+    let kind = if summary.write_count == 1 {
+        InlineLocalVarDefinitionActionKind::ConstFromAssignment
+    } else {
+        InlineLocalVarDefinitionActionKind::VarFromAssignment
+    };
+
+    Some(InlineLocalVarDefinitionAction {
+        name: declaration.name.clone(),
+        type_text: declaration.type_text.clone(),
+        declaration_order: declaration.declaration_order,
+        kind,
+        statement_start_byte: Some(first_assignment.statement_start_byte),
+        statement_end_byte: Some(first_assignment.statement_end_byte),
+        expr_start_byte: Some(first_assignment.expr_start_byte),
+        expr_end_byte: Some(first_assignment.expr_end_byte),
+    })
+}
+
+fn collect_inline_local_var_definition_from_defproc(
+    defproc_node: Node,
+    source: &str,
+    context: &mut InlineLocalVarDefinitionContext,
+) {
+    if defproc_node.has_error() {
+        return;
+    }
+
+    let children = direct_children(defproc_node);
+    let header_idx = children.iter().position(|child| child.kind() == "declProc");
+    let body_idx = children
+        .iter()
+        .position(|child| child.kind() == "block" || child.kind() == "asm");
+    let (Some(header_idx), Some(body_idx)) = (header_idx, body_idx) else {
+        return;
+    };
+    if body_idx <= header_idx + 1 {
+        return;
+    }
+
+    let body_node = children[body_idx];
+    if body_node.kind() != "block" || body_node.has_error() {
+        return;
+    }
+
+    let local_nodes = &children[header_idx + 1..body_idx];
+    if local_nodes.is_empty()
+        || local_nodes
+            .iter()
+            .any(|child| child.kind() != "declVars" || child.has_error())
+    {
+        return;
+    }
+
+    let mut declarations = Vec::new();
+    for local_node in local_nodes {
+        if collect_local_var_declarations_from_section(*local_node, source, &mut declarations)
+            .is_none()
+        {
+            return;
+        }
+    }
+    if declarations.is_empty() {
+        return;
+    }
+
+    let mut declared_names = HashSet::with_capacity(declarations.len());
+    for declaration in &declarations {
+        if !declared_names.insert(declaration.name.clone()) {
+            return;
+        }
+    }
+
+    let mut usage_by_name = HashMap::with_capacity(declarations.len());
+    for declaration in &declarations {
+        usage_by_name.insert(declaration.name.clone(), LocalVarUsageSummary::default());
+    }
+
+    collect_top_level_inline_assignment_candidates(
+        body_node,
+        source,
+        &declared_names,
+        &mut usage_by_name,
+    );
+
+    let mut routine_supported = true;
+    collect_inline_local_var_accesses(
+        body_node,
+        source,
+        &declared_names,
+        &mut usage_by_name,
+        &mut routine_supported,
+    );
+    if !routine_supported {
+        return;
+    }
+
+    let begin_insert_at = direct_children(body_node)
+        .into_iter()
+        .find(|child| child.kind() == "kBegin")
+        .map(|node| node.end_byte());
+    let Some(begin_insert_at) = begin_insert_at else {
+        return;
+    };
+
+    let mut actions = Vec::with_capacity(declarations.len());
+    for declaration in &declarations {
+        let Some(summary) = usage_by_name.get(&declaration.name) else {
+            return;
+        };
+        let Some(action) = plan_inline_local_var_action(declaration, summary) else {
+            return;
+        };
+        actions.push(action);
+    }
+
+    context.routines.push(InlineLocalVarDefinitionRoutine {
+        local_start_byte: children[header_idx].end_byte(),
+        local_end_byte: body_node.start_byte(),
+        begin_insert_at,
+        owner_start_byte: children[header_idx].start_byte(),
+        actions,
+    });
+}
+
+fn normalize_inline_local_var_definition_context(context: &mut InlineLocalVarDefinitionContext) {
+    let routines = &mut context.routines;
+    routines.sort_unstable_by_key(|routine| {
+        (
+            routine.local_start_byte,
+            routine.local_end_byte,
+            routine.begin_insert_at,
+            routine.owner_start_byte,
+        )
+    });
+    routines.dedup_by(|a, b| {
+        a.local_start_byte == b.local_start_byte
+            && a.local_end_byte == b.local_end_byte
+            && a.begin_insert_at == b.begin_insert_at
+            && a.owner_start_byte == b.owner_start_byte
+    });
+}
+
+fn collect_inline_local_var_definition_context(
+    node: Node,
+    source: &str,
+    context: &mut InlineLocalVarDefinitionContext,
+) {
+    if node.kind() == "defProc" {
+        collect_inline_local_var_definition_from_defproc(node, source, context);
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_inline_local_var_definition_context(child, source, context);
         }
     }
 }
@@ -1488,6 +2065,7 @@ pub fn parse_with_contexts(
         InheritedExpansionContext,
         LocalRoutineSpacingContext,
         ControlStatementBodyWrappingContext,
+        InlineLocalVarDefinitionContext,
     ),
     DFixxerError,
 > {
@@ -1520,12 +2098,21 @@ pub fn parse_with_contexts(
     );
     normalize_control_statement_body_wrapping_context(&mut control_statement_body_wrapping_context);
 
+    let mut inline_local_var_definition_context = InlineLocalVarDefinitionContext::default();
+    collect_inline_local_var_definition_context(
+        tree.root_node(),
+        source,
+        &mut inline_local_var_definition_context,
+    );
+    normalize_inline_local_var_definition_context(&mut inline_local_var_definition_context);
+
     Ok((
         ParseResult { code_sections },
         spacing_context,
         inherited_expansion_context,
         local_routine_spacing_context,
         control_statement_body_wrapping_context,
+        inline_local_var_definition_context,
     ))
 }
 
@@ -1534,7 +2121,7 @@ pub fn parse_with_contexts(
 pub fn parse_with_spacing_context(
     source: &str,
 ) -> Result<(ParseResult, SpacingContext), DFixxerError> {
-    let (parse_result, spacing_context, _, _, _) = parse_with_contexts(source)?;
+    let (parse_result, spacing_context, _, _, _, _) = parse_with_contexts(source)?;
     Ok((parse_result, spacing_context))
 }
 
@@ -1965,7 +2552,8 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _, _) =
+            parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -2003,7 +2591,8 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _, _) =
+            parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -2044,7 +2633,8 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _, _) =
+            parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(inherited_context.candidates.len(), 1);
 
         let candidate = &inherited_context.candidates[0];
@@ -2078,7 +2668,8 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _, _) =
+            parse_with_contexts(source).expect("Failed to parse");
         assert!(
             inherited_context.candidates.is_empty(),
             "Only bare inherited statements should produce expansion candidates"
@@ -2113,7 +2704,8 @@ end;
 
 end."#;
 
-        let (_, _, inherited_context, _, _) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, inherited_context, _, _, _) =
+            parse_with_contexts(source).expect("Failed to parse");
         assert_eq!(
             inherited_context.candidates.len(),
             1,
@@ -2137,7 +2729,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context, _) =
+        let (_, _, _, local_routine_context, _, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(
@@ -2170,7 +2762,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context, _) =
+        let (_, _, _, local_routine_context, _, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(local_routine_context.gaps.len(), 2);
@@ -2197,7 +2789,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context, _) =
+        let (_, _, _, local_routine_context, _, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(
@@ -2226,7 +2818,7 @@ end;
 begin
 end;"#;
 
-        let (_, _, _, local_routine_context, _) =
+        let (_, _, _, local_routine_context, _, _) =
             parse_with_contexts(source).expect("Failed to parse");
 
         assert!(
@@ -2236,6 +2828,59 @@ end;"#;
         assert!(
             local_routine_context.blocks.is_empty(),
             "Errored local-definition areas should not produce local routine blocks"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_contexts_collects_inline_local_var_definition_actions() {
+        let source = r#"procedure Test;
+var
+  A: Integer;
+  B: Integer;
+  C: Integer;
+begin
+  A := 1;
+  B := 2;
+  B := B + 1;
+end;"#;
+
+        let (_, _, _, _, _, inline_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert_eq!(inline_context.routines.len(), 1);
+        let routine = &inline_context.routines[0];
+        assert_eq!(routine.actions.len(), 3);
+
+        assert!(routine.actions.iter().any(|action| {
+            action.name == "A"
+                && action.kind == InlineLocalVarDefinitionActionKind::ConstFromAssignment
+        }));
+        assert!(routine.actions.iter().any(|action| {
+            action.name == "B"
+                && action.kind == InlineLocalVarDefinitionActionKind::VarFromAssignment
+        }));
+        assert!(routine.actions.iter().any(|action| {
+            action.name == "C" && action.kind == InlineLocalVarDefinitionActionKind::VarAtBlockStart
+        }));
+    }
+
+    #[test]
+    fn test_parse_with_contexts_skips_inline_local_var_definition_when_nested_local_routine_exists()
+    {
+        let source = r#"procedure Outer;
+var
+  A: Integer;
+procedure Inner;
+begin
+end;
+begin
+  A := 1;
+end;"#;
+
+        let (_, _, _, _, _, inline_context) = parse_with_contexts(source).expect("Failed to parse");
+
+        assert!(
+            inline_context.routines.is_empty(),
+            "Nested local routines should keep the routine-local var block untouched"
         );
     }
 
@@ -2250,7 +2895,8 @@ begin
   for Value in Values do Bar(Value);
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(wrapping_context.candidates.len(), 3);
 
@@ -2285,7 +2931,8 @@ begin
     Foo;
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(wrapping_context.candidates.len(), 1);
         let candidate = &wrapping_context.candidates[0];
@@ -2341,7 +2988,8 @@ begin
     ;
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         let candidate_bodies: Vec<&str> = wrapping_context
             .candidates
@@ -2377,7 +3025,8 @@ begin
 {$ENDIF}
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert!(
             wrapping_context.candidates.is_empty(),
@@ -2397,7 +3046,8 @@ begin
     Bar; // keep tail
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(wrapping_context.candidates.len(), 3);
 
@@ -2436,7 +3086,8 @@ begin
     Bar;
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(wrapping_context.candidates.len(), 3);
 
@@ -2492,7 +3143,8 @@ begin
     Exit;
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(wrapping_context.candidates.len(), 1);
         let candidate = &wrapping_context.candidates[0];
@@ -2518,7 +3170,8 @@ begin
     Foo()
 end."#;
 
-        let (_, _, _, _, wrapping_context) = parse_with_contexts(source).expect("Failed to parse");
+        let (_, _, _, _, wrapping_context, _) =
+            parse_with_contexts(source).expect("Failed to parse");
 
         assert_eq!(wrapping_context.candidates.len(), 2);
 

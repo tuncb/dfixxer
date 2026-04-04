@@ -379,6 +379,7 @@ enable_single_keyword_sections = true
 enable_procedure_section = true
 enable_local_routine_spacing = true
 enable_local_routine_indentation = true
+enable_inline_local_var_definitions = true
 enable_for_body_wrapping = true
 enable_while_body_wrapping = true
 enable_if_body_wrapping = true
