@@ -2,8 +2,8 @@
 
 A command-line tool that reformats Delphi/Pascal files.
 
-- VS Code extension: [https://github.com/tuncb/dfixxer-vscode]()
-- Pre-commit hook: [https://github.com/tuncb/dfixxer-pre-commit]()
+- VS Code extension: [https://github.com/tuncb/dfixxer-vscode](https://github.com/tuncb/dfixxer-vscode)
+- Pre-commit hook: [https://github.com/tuncb/dfixxer-pre-commit](https://github.com/tuncb/dfixxer-pre-commit)
 
 ## What dfixxer can fix
 
